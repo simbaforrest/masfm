@@ -265,7 +265,7 @@ namespace cmg {
 	//fix input observations and camera intrinsic parameters,
 	//optimize and output marker and view poses
 	void CMGraph::BatchProcess(
-		const std::vector<ObsArray> &frames, /*each frame's Observations' order would be sorted */
+		const VecObsArray &frames, /*each frame's Observations' order would be sorted */
 		const Calibration &calib,
 		CMGraph& G,
 		const std::string &fixed_marker_name/*=""*/,

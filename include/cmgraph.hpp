@@ -64,6 +64,14 @@ namespace cmg {
 			return ret;
 		}
 
+		inline void print() const
+		{
+			std::cout<<"k="<<k.transpose()<<std::endl;
+			std::cout<<"d="<<d.transpose()<<std::endl;
+			std::cout<<"Ck=\n"<<Ck<<std::endl;
+			std::cout<<"Cd=\n"<<Cd<<std::endl;
+		}
+
 		template<typename T>
 		void project(const T X[3], T U[2]) const
 		{
@@ -200,6 +208,7 @@ namespace cmg {
 		}
 	};
 	typedef std::vector< Observation,  Eigen::aligned_allocator<Observation> > ObsArray;
+	typedef std::vector<ObsArray> VecObsArray;
 
 	typedef std::map<std::string, int> Str2Int;
 
@@ -220,9 +229,21 @@ namespace cmg {
 	public: //member functions
 		CMGraph() : marker_half_size(1), verbose(true) {}
 
+		inline void print() const
+		{
+			std::cout<<"-------------------"<<std::endl;
+			std::cout<<"calib:"<<std::endl;
+			calib.print();
+			std::cout<<std::endl;
+
+			std::cout<<"marker_half_size="<<marker_half_size<<std::endl;
+			std::cout<<"verbose="<<verbose<<std::endl;
+			std::cout<<"-------------------"<<std::endl;
+		}
+
 		inline int nParams() const
 		{
-			return Pose::nParams()*(markers.size()+views.size());
+			return Pose::nParams()*static_cast<int>(markers.size()+views.size());
 		}
 
 		inline int nResiduals() const
@@ -232,7 +253,7 @@ namespace cmg {
 
 		inline int nObsResiduals() const
 		{
-			return 8*edges.size(); //TODO: allow each marker to have more than 4 point observations
+			return 8*static_cast<int>(edges.size()); //TODO: allow each marker to have more than 4 point observations
 		}
 
 		inline int nCstResiduals() const
@@ -278,7 +299,7 @@ namespace cmg {
 		}
 
 		static void BatchProcess(
-			const std::vector<ObsArray> &frames, //each frame's Observations' order would be sorted
+			const VecObsArray &frames, //each frame's Observations' order would be sorted
 			const Calibration &calib,
 			CMGraph& G,
 			const std::string &fixed_marker_name="",
