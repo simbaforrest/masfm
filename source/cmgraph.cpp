@@ -230,13 +230,15 @@ namespace cmg {
 		//2. solve
 		ceres::Solver::Options options;
 		options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY; //TODO: SPARSE_SCHUR?
-		options.minimizer_progress_to_stdout = false;
+		options.minimizer_progress_to_stdout = verbose;
 		options.max_num_iterations = max_iter;
 		options.function_tolerance = error_rel_tol;
 
 		ceres::Solver::Summary summary;
 		ceres::Solve(options, &problem, &summary);
-		std::cout << summary.BriefReport() << std::endl;
+		if(verbose) {
+			std::cout << summary.BriefReport() << std::endl;
+		}
 
 		//3. update
 		for(size_t eid=0; eid<edges.size(); ++eid) {
@@ -249,11 +251,13 @@ namespace cmg {
 		if(summary.termination_type == ceres::FAILURE)
 			return false;
 
-		std::cout<<"Before ceres, average Re-projection Error=initial_cost/num_residuals="
-			<<summary.initial_cost/summary.num_residuals<<std::endl;
-		Precision final_average_reproj_err_ = summary.final_cost/summary.num_residuals;
-		std::cout<<"After ceres, average Re-projection Error=final_cost/num_residuals="
-			<<final_average_reproj_err_<<std::endl;
+		if(verbose) {
+			std::cout<<"Before ceres, average Re-projection Error=initial_cost/num_residuals="
+				<<summary.initial_cost/summary.num_residuals<<std::endl;
+			Precision final_average_reproj_err_ = summary.final_cost/summary.num_residuals;
+			std::cout<<"After ceres, average Re-projection Error=final_cost/num_residuals="
+				<<final_average_reproj_err_<<std::endl;
+		}
 
 		return true;
 	}

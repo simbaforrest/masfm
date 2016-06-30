@@ -191,8 +191,8 @@ namespace cmg {
 	struct Observation {
 		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-		std::string name;
-		Pose init_view_pose; //view pose in marker, i.e., Tcm
+		std::string name;		//marker's name
+		Pose init_view_pose;	//view pose in marker, i.e., Tcm
 		Mat2x4T u;
 
 		bool operator<(const Observation& other) const {
@@ -220,17 +220,17 @@ namespace cmg {
 	public: //member functions
 		CMGraph() : marker_half_size(1), verbose(true) {}
 
-		inline size_t nParams() const
+		inline int nParams() const
 		{
 			return Pose::nParams()*(markers.size()+views.size());
 		}
 
-		inline size_t nResiduals() const
+		inline int nResiduals() const
 		{
 			return nObsResiduals() + nCstResiduals();
 		}
 
-		inline size_t nObsResiduals() const
+		inline int nObsResiduals() const
 		{
 			return 8*edges.size(); //TODO: allow each marker to have more than 4 point observations
 		}

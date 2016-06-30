@@ -98,7 +98,7 @@ add_library(cmgraph STATIC
 add_executable(masfm
 	source/masfm.cpp
 	${MASFM_HEADERS}
-	source/masfm.cfg
+	source/masfm.ini
 )
 
 target_link_libraries(masfm cmgraph ${CERES_LIB} ${LIBGLOG_LIB})
