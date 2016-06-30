@@ -1,8 +1,15 @@
 #include "cmgraph.hpp"
 
+#pragma warning( push )
 # pragma warning (disable:4819)
+# pragma warning (disable:4251)
+# pragma warning (disable:4355)
+#ifdef LIBGLOG_IS_STATIC //see https://github.com/google/glog/issues/103
+#define GOOGLE_GLOG_DLL_DECL
+#endif
 #include "ceres/ceres.h"
 #include "ceres/rotation.h"
+#pragma warning( pop )
 
 namespace cmg {
 
@@ -161,14 +168,14 @@ namespace cmg {
 				mids[i] = itr->second;
 				if(first_mid==INVALID_NID) {
 					first_mid = itr->second;
-					first_mid_pos = i;
+					first_mid_pos = static_cast<int>(i);
 				}
 			}
 		}
 
 		if(first_mid==INVALID_NID) return vid;
-		Mat4T Tmw = markers[first_mid].T();
-		Mat4T Tcm = oa[first_mid_pos].init_view_pose.T();
+		Mat4T Tmw = markers[first_mid].toT();
+		Mat4T Tcm = oa[first_mid_pos].init_view_pose.toT();
 		Mat4T Tcw = Tmw * Tcm;
 		//TODO: use all existing marker observation to init the new view pose
 		vid = newView(Pose::T2p(Tcw), Mat6T::Identity(), view_name);
@@ -197,7 +204,7 @@ namespace cmg {
 		ceres::LossFunction* lossFunc = new ceres::HuberLoss(huber_loss_bandwidth);
 
 		//1.1 marker observation residuals
-		for(EID eid=0; eid<edges.size(); ++eid) {
+		for(size_t eid=0; eid<edges.size(); ++eid) {
 			const Edge& edge = edges[eid];
 			Node &view = views[edge.vid];
 			Node &marker = markers[edge.mid];
@@ -208,28 +215,17 @@ namespace cmg {
 
 			ceres::CostFunction* costFunc =
 				new ceres::AutoDiffCostFunction<MarkerReprojectionError2, 8, 6, 6>
-				(new MarkerReprojectionError2(*this, eid));
+				(new MarkerReprojectionError2(*this, static_cast<int>(eid)));
 
 			problem.AddResidualBlock(costFunc, lossFunc, view_pose_inverse, marker_pose);
 		}
 
 		//1.2 constraint residuals
-		for(NID cid=0; cid<csts.size(); ++cid) {
-			const Constraint_FixedMarker* fcst =
-				dynamic_cast<const Constraint_FixedMarker*>(csts[cid]);
-			if(!fcst) {
-				std::cout<<"ignore unknown constraint!"<<std::endl;
-				continue;
-			}
-			Node &marker = markers[fcst->fid];
-			Precision *marker_pose = marker.p.data();
-
-			ceres::CostFunction* costFunc =
-				new ceres::AutoDiffCostFunction<FixedMarkerError, 6, 6>
-				(new FixedMarkerError(fcst->fixed_pose));
-
-			problem.AddResidualBlock(costFunc, 0, marker_pose);
-		}
+		Precision *marker_pose = fixed_marker_pose.p.data();
+		ceres::CostFunction* costFunc =
+			new ceres::AutoDiffCostFunction<FixedMarkerError, 6, 6>
+			(new FixedMarkerError(fixed_marker_pose));
+		problem.AddResidualBlock(costFunc, 0, marker_pose);
 
 		//2. solve
 		ceres::Solver::Options options;
@@ -243,7 +239,7 @@ namespace cmg {
 		std::cout << summary.BriefReport() << std::endl;
 
 		//3. update
-		for(EID eid=0; eid<edges.size(); ++eid) {
+		for(size_t eid=0; eid<edges.size(); ++eid) {
 			const Edge& edge = edges[eid];
 			Node &view = views[edge.vid];
 
@@ -281,13 +277,12 @@ namespace cmg {
 		fixed_cov << p_ang, p_ang, p_ang, p_pos, p_pos, p_pos;
 		NID fixed_id = G.newMarker(Vec6T::Zero(),
 			fixed_cov.asDiagonal(), fixed_marker_name);
-		Constraint_FixedMarker csf(fixed_id,G.markers[fixed_id]);
-		G.newConstraint(&csf);
+		G.fixed_marker_pose = G.markers[fixed_id];
 
 		//2. process each frame
 		Veci frame_order;
 		Veci frame_todo;
-		range(0, frames.size(), 1, frame_order);
+		range(0, static_cast<int>(frames.size()), 1, frame_order);
 		for(size_t i=0; i<frames.size(); ++i) {
 			const int ith = frame_order[i];
 			ObsArray& oa = const_cast<ObsArray&>(frames[ith]);

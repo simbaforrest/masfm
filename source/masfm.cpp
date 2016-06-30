@@ -1,6 +1,6 @@
-#include "cmgraph.hpp"
-
 #include "lch.hpp"
+
+#include "cmgraph.hpp"
 
 using helper::GConfig;
 

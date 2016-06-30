@@ -4,7 +4,11 @@
 #include <string>
 #include <sstream>
 
+#pragma warning( push )
+# pragma warning (disable:4800)
 #include <Eigen/Dense>
+#include <Eigen/StdVector> //NodeArray, EdgeArray
+#pragma warning( pop )
 
 namespace cmg {
 	typedef double Precision;
@@ -99,7 +103,7 @@ namespace cmg {
 		}
 
 		//return T=[R,t;0,1]
-		inline Mat4T T() const
+		inline Mat4T toT() const
 		{
 			Mat4T ret;
 			ret.setIdentity();
@@ -164,23 +168,29 @@ namespace cmg {
 	};
 
 	struct Node : public Pose {
+		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
 		std::string name;	//name of the marker
 		Veci vmeids;		//vmEdges' ids linked to this marker (not used now)
 	};
-	typedef std::vector<Node> NodeArray;
-	typedef size_t NID;
+	typedef std::vector< Node, Eigen::aligned_allocator<Node> > NodeArray;
+	typedef int NID;
 	const NID INVALID_NID = -1;
 
 	struct Edge {
+		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
 		int vid;	//id of view
 		int mid;	//id of marker
 		Mat2x4T u;	//observations, 2x4, TODO: allow different observations
 	};
-	typedef std::vector<Edge> EdgeArray;
-	typedef size_t EID;
+	typedef std::vector< Edge, Eigen::aligned_allocator<Edge> > EdgeArray;
+	typedef int EID;
 	const EID INVALID_EID = -1;
 
 	struct Observation {
+		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
 		std::string name;
 		Pose init_view_pose; //view pose in marker, i.e., Tcm
 		Mat2x4T u;
@@ -189,41 +199,17 @@ namespace cmg {
 			return perimeter(u) > perimeter(other.u);
 		}
 	};
-	typedef std::vector<Observation> ObsArray;
+	typedef std::vector< Observation,  Eigen::aligned_allocator<Observation> > ObsArray;
 
-	typedef std::map<std::string, size_t> Str2Int;
+	typedef std::map<std::string, int> Str2Int;
 
 	class CMGraph {
-	public: //types
-		struct Constraint {
-			typedef Constraint *Ptr;
-			NID fid;	//from node fid
-			NID tid;	//to node tid
-			int nResiduals;
-
-			Constraint(NID f, NID t, int n) : fid(f), tid(t), nResiduals(n) {}
-			virtual void operator()(const CMGraph &G, MatT& rout) const = 0;
-			virtual ~Constraint() {}
-		};
-		typedef std::vector<Constraint::Ptr> CstPtrArray;
-		struct Constraint_FixedMarker : public Constraint {
-			Pose fixed_pose;
-
-			Constraint_FixedMarker(NID mid, const Pose& pose)
-				: Constraint(mid, mid, Pose::nParams()), fixed_pose(pose)
-			{}
-
-			void operator()(const CMGraph &G, MatT& rout) const {
-				const Node& current_pose = G.markers[fid];
-				rout = fixed_pose.Cp.inverse() * (current_pose.p - fixed_pose.p);
-			}
-		};
-
 	public: //member variables
 		NodeArray markers;
 		NodeArray views;
 		EdgeArray edges;
-		CstPtrArray csts;
+		
+		Pose fixed_marker_pose;
 
 		Calibration calib;
 		Str2Int name2mid; //name -> makrer id
@@ -251,11 +237,7 @@ namespace cmg {
 
 		inline int nCstResiduals() const
 		{
-			int ret=0;
-			for(int i=0; i<csts.size(); ++i) {
-				ret+=csts[i]->nResiduals;
-			}
-			return ret;
+			return Pose::nParams();
 		}
 
 		NID addObsFromNewView(ObsArray& oa, const std::string &view_name);
@@ -314,7 +296,7 @@ namespace cmg {
 			node.name = name;
 			markers.push_back(node);
 
-			NID mid = markers.size()-1;
+			NID mid = static_cast<int>(markers.size())-1;
 			name2mid[name]=mid;
 			return mid;
 		}
@@ -327,7 +309,7 @@ namespace cmg {
 			node.name = name;
 			views.push_back(node);
 
-			NID vid = views.size()-1;
+			NID vid = static_cast<int>(views.size())-1;
 			return vid;
 		}
 
@@ -338,18 +320,12 @@ namespace cmg {
 			edge.mid=mid;
 			edge.u = u;
 
-			EID eid = edges.size();
+			EID eid = static_cast<int>(edges.size());
 			edges.push_back(edge);
 
-			views[vid].vmeids.push_back(int(eid));
-			markers[mid].vmeids.push_back(int(eid));
+			views[vid].vmeids.push_back(eid);
+			markers[mid].vmeids.push_back(eid);
 			return eid;
-		}
-
-		inline size_t newConstraint(Constraint::Ptr pCst)
-		{
-			csts.push_back(pCst);
-			return csts.size()-1;
 		}
 	};
 }
