@@ -11,6 +11,8 @@
 #include "ceres/rotation.h"
 #pragma warning( pop )
 
+#include "lch.hpp"
+
 namespace cmg {
 
 #if 0
@@ -151,6 +153,73 @@ namespace cmg {
 		}
 	};
 
+	void CMGraph::report(std::ofstream& out) const
+	{
+		out << markers.size() << std::endl;
+		for(size_t mid=0; mid<markers.size(); ++mid) {
+			const Node& m = markers[mid];
+			out << m.name << " " << m.p.transpose() << std::endl;
+		}
+
+		out << views.size() << std::endl;
+		for(size_t vid=0; vid<views.size(); ++vid) {
+			const Node& v = views[vid];
+			out << v.name << " " << v.p.transpose() << std::endl;
+		}
+	}
+
+	NID CMGraph::newMarker(const Vec6T& p, const Mat6T& Cp, const std::string& name)
+	{
+		Node node;
+		node.p = p;
+		node.Cp = Cp;
+		node.name = name;
+		markers.push_back(node);
+
+		NID mid = static_cast<int>(markers.size())-1;
+		name2mid[name]=mid;
+
+		if (verbose) {
+			clogi("newMarker m%d: %s\n", mid, name.c_str());
+		}
+		return mid;
+	}
+
+	NID CMGraph::newView(const Vec6T& p, const Mat6T& Cp, const std::string& name)
+	{
+		Node node;
+		node.p = p;
+		node.Cp = Cp;
+		node.name = name;
+		views.push_back(node);
+
+		NID vid = static_cast<int>(views.size())-1;
+
+		if (verbose) {
+			clogi("newView v%d: %s\n", vid, name.c_str());
+		}
+		return vid;
+	}
+
+	EID CMGraph::newEdge(const int vid, const int mid, const MatT& u)
+	{
+		Edge edge;
+		edge.vid=vid;
+		edge.mid=mid;
+		edge.u = u;
+
+		EID eid = static_cast<int>(edges.size());
+		edges.push_back(edge);
+
+		views[vid].vmeids.push_back(eid);
+		markers[mid].vmeids.push_back(eid);
+
+		if (verbose) {
+			clogi("newEdge v%d->m%d\n", vid, mid);
+		}
+		return eid;
+	}
+
 	NID CMGraph::addObsFromNewView( ObsArray& oa, const std::string &view_name )
 	{
 		//sort by perimeter descending order
@@ -199,6 +268,12 @@ namespace cmg {
 		const Precision huber_loss_bandwidth/*=10*/,
 		const Precision error_rel_tol/*=1e-2*/)
 	{
+		//0. collect all view's poses and invert them
+		Vec6TArray inv_view_poses(views.size());
+		for(size_t vid=0; vid<views.size(); ++vid) {
+			inv_view_poses[vid] = views[vid].invp();
+		}
+		
 		//1. push residuals into ceres
 		ceres::Problem problem;
 		ceres::LossFunction* lossFunc = new ceres::HuberLoss(huber_loss_bandwidth);
@@ -206,12 +281,9 @@ namespace cmg {
 		//1.1 marker observation residuals
 		for(size_t eid=0; eid<edges.size(); ++eid) {
 			const Edge& edge = edges[eid];
-			Node &view = views[edge.vid];
-			Node &marker = markers[edge.mid];
 
-			view.p = Pose::T2p(view.invT()); //temporarily inverse the pose
-			Precision *view_pose_inverse = view.p.data();
-			Precision *marker_pose = marker.p.data();
+			Precision *view_pose_inverse = inv_view_poses[edge.vid].data();
+			Precision *marker_pose = markers[edge.mid].p.data();
 
 			ceres::CostFunction* costFunc =
 				new ceres::AutoDiffCostFunction<MarkerReprojectionError2, 8, 6, 6>
@@ -221,7 +293,7 @@ namespace cmg {
 		}
 
 		//1.2 constraint residuals
-		Precision *marker_pose = fixed_marker_pose.p.data();
+		Precision *marker_pose = markers[fixed_marker_id].p.data();
 		ceres::CostFunction* costFunc =
 			new ceres::AutoDiffCostFunction<FixedMarkerError, 6, 6>
 			(new FixedMarkerError(fixed_marker_pose));
@@ -230,33 +302,34 @@ namespace cmg {
 		//2. solve
 		ceres::Solver::Options options;
 		options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY; //TODO: SPARSE_SCHUR?
-		options.minimizer_progress_to_stdout = verbose;
+		options.minimizer_progress_to_stdout = (helper::GetOrSetLogLevel()>=helper::LOG_DEBUG);
 		options.max_num_iterations = max_iter;
 		options.function_tolerance = error_rel_tol;
 
 		ceres::Solver::Summary summary;
 		ceres::Solve(options, &problem, &summary);
-		if(verbose) {
-			std::cout << summary.BriefReport() << std::endl;
-		}
+		logld(summary.BriefReport());
 
 		//3. update
 		for(size_t eid=0; eid<edges.size(); ++eid) {
 			const Edge& edge = edges[eid];
 			Node &view = views[edge.vid];
-
-			view.p = Pose::T2p(view.invT()); //update the view pose
+			view.p = Pose(inv_view_poses[edge.vid]).invp(); //update the view pose
 		}
 
 		if(summary.termination_type == ceres::FAILURE)
 			return false;
 
 		if(verbose) {
-			std::cout<<"Before ceres, average Re-projection Error=initial_cost/num_residuals="
-				<<summary.initial_cost/summary.num_residuals<<std::endl;
-			Precision final_average_reproj_err_ = summary.final_cost/summary.num_residuals;
-			std::cout<<"After ceres, average Re-projection Error=final_cost/num_residuals="
-				<<final_average_reproj_err_<<std::endl;
+			clogi("BA: exitflag=%d, #iter=%d, time=%f s\n",
+				summary.termination_type,
+				summary.iterations.size(),
+				summary.total_time_in_seconds
+			);
+			clogi("    norm(err)/size(err) = %f -> %f\n",
+				summary.initial_cost/summary.num_residuals,
+				summary.final_cost/summary.num_residuals
+			);
 		}
 
 		return true;
@@ -279,9 +352,9 @@ namespace cmg {
 		//1. setup fixed marker
 		Vec6T fixed_cov;
 		fixed_cov << p_ang, p_ang, p_ang, p_pos, p_pos, p_pos;
-		NID fixed_id = G.newMarker(Vec6T::Zero(),
+		G.fixed_marker_id = G.newMarker(Vec6T::Zero(),
 			fixed_cov.asDiagonal(), fixed_marker_name);
-		G.fixed_marker_pose = G.markers[fixed_id];
+		G.fixed_marker_pose = G.markers[G.fixed_marker_id];
 
 		//2. process each frame
 		Veci frame_order;
@@ -298,6 +371,15 @@ namespace cmg {
 				continue;
 			}
 			G.optimizePose(sigma_u, max_iter_per_opt);
+
+			if(G.verbose) {
+				clogi("#markers=%d, #views=%d, #edges=%d | #parameters=%d, #residuals=%d"
+					" --------------------added view %d\n",
+					G.markers.size(), G.views.size(), G.edges.size(),
+					G.nParams(), G.nResiduals(),
+					ith
+				);
+			}
 		}
 
 		//TODO: handle frame_todo

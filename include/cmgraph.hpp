@@ -27,6 +27,10 @@ namespace cmg {
 	typedef Eigen::Matrix<Precision, 3, 4> Mat3x4T;
 	typedef Eigen::Matrix<Precision, 4, 3> Mat4x3T;
 
+	inline static Precision eps() {
+		return 10*std::numeric_limits<Precision>::epsilon();
+	}
+
 	typedef std::vector<int> Veci;
 	inline static void range(const int start, const int end, const int step, Veci& ret)
 	{
@@ -100,7 +104,13 @@ namespace cmg {
 		//return rotation matrix R
 		inline Mat3T R() const
 		{
-			Eigen::AngleAxis<Precision> aa(p.head<3>().norm(), p.head<3>().normalized());
+			Precision ang = p.head<3>().norm();
+			Vec3T axis(1,0,0);
+			if(ang>eps())
+				axis = p.head<3>().normalized();
+			else
+				ang = 0;
+			Eigen::AngleAxis<Precision> aa(ang, axis);
 			return aa.toRotationMatrix();
 		}
 
@@ -115,8 +125,8 @@ namespace cmg {
 		{
 			Mat4T ret;
 			ret.setIdentity();
-			ret.topLeftCorner<3,3>(0,0) = R();
-			ret.topLeftCorner<3,1>(0,3) = t();
+			ret.topLeftCorner<3,3>() = R();
+			ret.topRightCorner<3,1>() = t();
 			return ret;
 		}
 
@@ -125,9 +135,14 @@ namespace cmg {
 			Mat3T rot = R().transpose();
 			Mat4T T;
 			T.setIdentity();
-			T.topLeftCorner<3,3>(0,0) = rot;
-			T.topLeftCorner<3,1>(0,3) = -rot * t();
+			T.topLeftCorner<3,3>() = rot;
+			T.topRightCorner<3,1>() = -rot * t();
 			return T;
+		}
+
+		inline Vec6T invp() const
+		{
+			return T2p(invT());
 		}
 
 		inline void fromR(const Mat3T& R)
@@ -144,36 +159,34 @@ namespace cmg {
 
 		inline void fromT(const Mat4T& T)
 		{
-			fromR(T.topLeftCorner<3,3>(0,0));
-			fromt(T.topLeftCorner<3,1>(0,3));
+			fromR(T.topLeftCorner<3,3>());
+			fromt(T.topRightCorner<3,1>());
 		}
 
 		inline static Vec6T T2p(const Mat4T& T)
 		{
-			Vec6T p;
-			Eigen::AngleAxis<Precision> aa;
-			aa.fromRotationMatrix(T.topLeftCorner<3,3>(0,0));
-			p.head<3>() = aa.axis() * aa.angle();
-			p.tail<3>() = T.topLeftCorner<3,1>(0,3);
-			return p;
+			return Pose(T).p;
 		}
 
 		inline static Mat4T p2T(const Vec6T& p)
 		{
-			Mat4T ret;
-			ret.setIdentity();
-			Eigen::AngleAxis<Precision> aa(p.head<3>().norm(), p.head<3>().normalized());
-			ret.topLeftCorner<3,3>(0,0) = aa.toRotationMatrix();
-			ret.topLeftCorner<3,1>(0,3) = p.tail<3>();
-			return ret;
+			return Pose(p).toT();
 		}
 
 		Pose() { p.setZero(); Cp.setZero(); }
+		Pose(const Vec6T& p_) : p(p_) {
+			Cp.setZero();
+		}
+		Pose(const Mat4T& T) {
+			fromT(T);
+			Cp.setZero();
+		}
 		Pose(const Mat4T& T, const Mat6T& Covp) : Cp(Covp)
 		{
 			fromT(T);
 		}
 	};
+	typedef std::vector< Vec6T, Eigen::aligned_allocator<Vec6T> > Vec6TArray;
 
 	struct Node : public Pose {
 		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -219,6 +232,7 @@ namespace cmg {
 		EdgeArray edges;
 		
 		Pose fixed_marker_pose;
+		NID fixed_marker_id;
 
 		Calibration calib;
 		Str2Int name2mid; //name -> makrer id
@@ -227,8 +241,9 @@ namespace cmg {
 		bool verbose;
 
 	public: //member functions
-		CMGraph() : marker_half_size(1), verbose(true) {}
+		CMGraph() : fixed_marker_id(INVALID_NID), marker_half_size(1), verbose(true) {}
 
+		//print input information
 		inline void print() const
 		{
 			std::cout<<"-------------------"<<std::endl;
@@ -240,6 +255,9 @@ namespace cmg {
 			std::cout<<"verbose="<<verbose<<std::endl;
 			std::cout<<"-------------------"<<std::endl;
 		}
+
+		//print CMGraph state
+		void report(std::ofstream& out) const;
 
 		inline int nParams() const
 		{
@@ -280,8 +298,8 @@ namespace cmg {
 				-1, 1
 			};
 
-			Mat2x4T ret = Mat4x2T(ret_).transpose() * half_size;
-			return ret;
+			Mat2x4T ret(ret_);
+			return ret * half_size;
 		}
 
 		//return 3D coordinates of a marker's 4 corners
@@ -294,8 +312,8 @@ namespace cmg {
 				-1, 1, 0
 			};
 
-			Mat3x4T ret = Mat4x3T(ret_).transpose() * half_size;
-			return ret;
+			Mat3x4T ret(ret_);
+			return ret * half_size;
 		}
 
 		static void BatchProcess(
@@ -309,44 +327,10 @@ namespace cmg {
 			const int max_iter_per_opt=20);
 
 	protected:
-		inline NID newMarker(const Vec6T& p, const Mat6T& Cp, const std::string& name)
-		{
-			Node node;
-			node.p = p;
-			node.Cp = Cp;
-			node.name = name;
-			markers.push_back(node);
+		NID newMarker(const Vec6T& p, const Mat6T& Cp, const std::string& name);
 
-			NID mid = static_cast<int>(markers.size())-1;
-			name2mid[name]=mid;
-			return mid;
-		}
+		NID newView(const Vec6T& p, const Mat6T& Cp, const std::string& name);
 
-		inline NID newView(const Vec6T& p, const Mat6T& Cp, const std::string& name)
-		{
-			Node node;
-			node.p = p;
-			node.Cp = Cp;
-			node.name = name;
-			views.push_back(node);
-
-			NID vid = static_cast<int>(views.size())-1;
-			return vid;
-		}
-
-		inline EID newEdge(const int vid, const int mid, const MatT& u)
-		{
-			Edge edge;
-			edge.vid=vid;
-			edge.mid=mid;
-			edge.u = u;
-
-			EID eid = static_cast<int>(edges.size());
-			edges.push_back(edge);
-
-			views[vid].vmeids.push_back(eid);
-			markers[mid].vmeids.push_back(eid);
-			return eid;
-		}
+		EID newEdge(const int vid, const int mid, const MatT& u);
 	};
 }

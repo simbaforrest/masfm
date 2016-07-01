@@ -27,12 +27,55 @@ void load_calibration(cmg::CMGraph& G)
 	sd[0] = helper::iniGet<Precision>("sigma_k1",0.1);
 	sd[1] = helper::iniGet<Precision>("sigma_k2",0.1);
 
-	G.calib.Ck = Vec4T(sk).asDiagonal();
-	G.calib.Cd = Vec2T(sd).asDiagonal();
+	G.calib.Ck = Vec4T(sk).cwiseAbs2().asDiagonal();
+	G.calib.Cd = Vec2T(sd).cwiseAbs2().asDiagonal();
 }
 
 void load_all_frames(cmg::VecObsArray& frames)
 {
+	using namespace cmg;
+
+	std::string fname = helper::iniGet<std::string>("input","");
+	std::ifstream fin(fname.c_str());
+	if(!fin.is_open()) {
+		tagle("cannot open input file: "<<fname);
+		exit(-1);
+	}
+
+	int nframes;
+	fin >> nframes;
+	frames.resize(nframes);
+
+	for(int fi=0; fi<nframes; ++fi) {
+		int ndets;
+		fin >> ndets;
+		ObsArray& deti = frames[fi];
+		deti.resize(ndets);
+		for(int di=0; di<ndets; ++di) {
+			Observation& obsi = deti[di];
+			fin >> obsi.name;
+			for(int pi=0; pi<6; ++pi)
+				fin >> obsi.init_view_pose.p(pi);
+			for(int ui=0; ui<4; ++ui) {
+				fin >> obsi.u(0, ui);
+				fin >> obsi.u(1, ui);
+			}
+		}
+	}
+}
+
+void save_graph_states(cmg::CMGraph& G)
+{
+	using namespace cmg;
+
+	std::string fname = helper::iniGet<std::string>("output","");
+	std::ofstream fout(fname.c_str());
+	if(!fout.is_open()) {
+		tagle("cannot open output file: "<<fname);
+		exit(-1);
+	}
+
+	G.report(fout);
 }
 
 int process()
@@ -42,6 +85,7 @@ int process()
 
 	load_calibration(G);
 	G.marker_half_size = helper::iniGet<Precision>("marker_half_size", 0.1);
+	G.verbose = helper::iniGet<bool>("verbose", true);
 	G.print();
 
 	static std::string fixed_marker_name = helper::iniGet<std::string>("fixed_marker_name", "Tag36h11.0");
@@ -54,13 +98,15 @@ int process()
 	load_all_frames(frames);
 
 	CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt);
+
+	save_graph_states(G);
 	
 	return 0;
 }
 
 int main(const int argc, const char **argv, const char** envp )
 {
-	LogHelper::GLogControl::Instance().level = LogHelper::LOG_INFO;
+	LogHelper::GetOrSetLogLevel(LogHelper::LOG_INFO);
 
 	if(argc>1) {
 		helper::iniLoad(argv[1]);
@@ -68,6 +114,7 @@ int main(const int argc, const char **argv, const char** envp )
 		helper::iniLoad("masfm.ini");
 	}
 	helper::iniLoad(envp, "masfm_", true);
+	logli("");
 
 	return process();
 }
