@@ -26,6 +26,8 @@ Specify3rdparty(
 	apriltag/apriltag.hpp
 )
 include(${CV2CG_INCLUDE_DIR}/../cmake/SetCV2CGDependencies.cmake)
+ADD_DEFINITIONS(-DOPENCV_FOUND)
+MESSAGE(STATUS "CV2CG_3RDPARTY_LINKEROPTION: " ${CV2CG_3RDPARTY_LINKEROPTION})
 
 ####### eigen
 Specify3rdparty(
@@ -42,25 +44,23 @@ Specify3rdparty(
 	"include directory for libglog"
 	glog/logging.h
 )
-# libglog lib
-if(NOT LIBGLOG_LIB_DIR)
-	set(LIBGLOG_LIB_DIR "c:/glog/lib" CACHE PATH "lib directory for libglog")
-endif()
-if(EXISTS ${LIBGLOG_LIB_DIR}/libglog.lib OR EXISTS ${LIBGLOG_LIB_DIR}/libglog_static.lib)
-	link_directories(${LIBGLOG_LIB_DIR})
-	message(STATUS "libglog lib: ${LIBGLOG_LIB_DIR}")
-else()
-	message(FATAL_ERROR "Please specify a valid lib directory for libglog!")
-endif()
+Specify3rdpartyLib(
+	LIBGLOG_LIB_RELEASE
+	c:/glog/lib/Release/libglog.lib
+	"release lib for libglog"
+	true
+)
+Specify3rdpartyLib(
+	LIBGLOG_LIB_DEBUG
+	c:/glog/lib/Debug/libglog.lib
+	"debug lib for libglog"
+	false
+)
 # use static or dynamic libglog
 option(OPT_USE_LIBGLOG_STATIC "use libglog_static.lib instead of libglog.lib" ON)
 if(OPT_USE_LIBGLOG_STATIC)
 	add_definitions( -DLIBGLOG_IS_STATIC )
-	set(LIBGLOG_LIB libglog_static.lib)
-else()
-	set(LIBGLOG_LIB libglog.lib)
 endif()
-message(STATUS "LIBGLOG_LIB=${LIBGLOG_LIB}")
 
 ####### ceres
 Specify3rdparty(
@@ -70,29 +70,27 @@ Specify3rdparty(
 	ceres/ceres.h
 )
 include_directories("${CERES_INCLUDE_DIR}/../../win/include/")
-# ceres lib
-if(NOT CERES_LIB_DIR)
-	set(CERES_LIB_DIR "c:/ceres/lib" CACHE PATH "lib directory for ceres")
-endif()
-if(EXISTS ${CERES_LIB_DIR}/ceres.lib OR EXISTS ${CERES_LIB_DIR}/ceres_static.lib)
-	link_directories(${CERES_LIB_DIR})
-	message(STATUS "ceres lib: ${CERES_LIB_DIR}")
-else()
-	message(FATAL_ERROR "Please specify a valid lib directory for ceres!")
-endif()
+Specify3rdpartyLib(
+	CERES_LIB_RELEASE
+	c:/ceres/lib/Release/ceres.lib
+	"release lib for ceres"
+	true
+)
+Specify3rdpartyLib(
+	CERES_LIB_DEBUG
+	c:/glog/lib/Debug/ceres.lib
+	"debug lib for ceres"
+	false
+)
 # use static or dynamic ceres
 option(OPT_USE_CERES_STATIC "use ceres_static.lib instead of ceres.lib" ON)
 if(OPT_USE_CERES_STATIC)
-	set(CERES_LIB ceres_static.lib)
 	add_definitions( -DCERES_USING_STATIC_LIBRARY )
 	
 	set( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} /GL" )
 	set( CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} /LTCG" )
 	set( CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} /LTCG" )
-else()
-	set(CERES_LIB ceres.lib)
 endif()
-message(STATUS "CERES_LIB=${CERES_LIB}")
 
 ######################################################################################
 add_library(cmgraph STATIC
@@ -106,6 +104,9 @@ add_executable(masfm
 	source/masfm.ini
 )
 
-target_link_libraries(masfm cmgraph ${CERES_LIB} ${LIBGLOG_LIB})
+target_link_libraries(masfm cmgraph ${CV2CG_3RDPARTY_LINKEROPTION})
+target_link_libraries(masfm optimized ${LIBGLOG_LIB_RELEASE} ${CERES_LIB_RELEASE})
+target_link_libraries(masfm debug ${LIBGLOG_LIB_DEBUG} ${CERES_LIB_DEBUG})
+
 set_target_properties(${ProjectName} PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/bin")
 

@@ -14,3 +14,22 @@ else()
 endif()
 
 ENDMACRO()
+
+
+
+MACRO(Specify3rdpartyLib name default_path explain_text is_required)
+
+if(NOT ${name})
+	set(${name} "${default_path}" CACHE FILEPATH ${explain_text})
+endif()
+if(EXISTS ${${name}})
+	message(STATUS "${name}: ${${name}}")
+else()
+	IF(is_required)
+		message(FATAL_ERROR "Please specify a valid lib path for ${name}!")
+	ELSE()
+		message(WARNING "lib path for ${name} not found, ignored!")
+	ENDIF()
+endif()
+
+ENDMACRO()

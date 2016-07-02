@@ -97,7 +97,10 @@ int process()
 	VecObsArray frames;
 	load_all_frames(frames);
 
-	CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt);
+	{
+		helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[CMGraph::BatchProcess]");
+		CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt);
+	}
 
 	save_graph_states(G);
 	
