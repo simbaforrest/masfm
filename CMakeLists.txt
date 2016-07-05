@@ -87,9 +87,11 @@ option(OPT_USE_CERES_STATIC "use ceres_static.lib instead of ceres.lib" ON)
 if(OPT_USE_CERES_STATIC)
 	add_definitions( -DCERES_USING_STATIC_LIBRARY )
 	
-	set( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} /GL" )
-	set( CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} /LTCG" )
-	set( CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} /LTCG" )
+	IF(WIN32)
+		set( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} /GL /Ot" )
+		set( CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} /LTCG" )
+		set( CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} /LTCG" )
+	ENDIF()
 endif()
 
 ######################################################################################

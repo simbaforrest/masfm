@@ -155,16 +155,17 @@ namespace cmg {
 
 	void CMGraph::report(std::ofstream& out) const
 	{
+		Eigen::IOFormat fmt(Eigen::FullPrecision, Eigen::DontAlignCols);
 		out << markers.size() << std::endl;
 		for(size_t mid=0; mid<markers.size(); ++mid) {
 			const Node& m = markers[mid];
-			out << m.name << " " << m.p.transpose() << std::endl;
+			out << m.name << " " << m.p.transpose().format(fmt) << std::endl;
 		}
 
 		out << views.size() << std::endl;
 		for(size_t vid=0; vid<views.size(); ++vid) {
 			const Node& v = views[vid];
-			out << v.name << " " << v.p.transpose() << std::endl;
+			out << v.name << " " << v.p.transpose().format(fmt) << std::endl;
 		}
 	}
 
@@ -244,7 +245,7 @@ namespace cmg {
 
 		if(first_mid==INVALID_NID) return vid;
 		Mat4T Tmw = markers[first_mid].toT();
-		Mat4T Tcm = oa[first_mid_pos].init_view_pose.toT();
+		Mat4T Tcm = oa[first_mid_pos].init_marker_pose.invT();
 		Mat4T Tcw = Tmw * Tcm;
 		//TODO: use all existing marker observation to init the new view pose
 		vid = newView(Pose::T2p(Tcw), Mat6T::Identity(), view_name);
@@ -253,7 +254,7 @@ namespace cmg {
 			const Observation& obs = oa[i];
 			int midi = mids[i];
 			if(midi==INVALID_NID) { //new markers
-				Mat4T Tmc = obs.init_view_pose.invT();
+				Mat4T Tmc = obs.init_marker_pose.toT();
 				Tmw = Tcw * Tmc;
 				midi = newMarker(Pose::T2p(Tmw), Mat6T::Identity(), obs.name);
 			}
@@ -275,7 +276,7 @@ namespace cmg {
 		}
 		
 		//1. push residuals into ceres
-		ceres::Problem problem;
+		ceres::Problem problem; //TODO: make problem a member variable so this process is faster
 		ceres::LossFunction* lossFunc = new ceres::HuberLoss(huber_loss_bandwidth);
 
 		//1.1 marker observation residuals
@@ -335,6 +336,19 @@ namespace cmg {
 		return true;
 	}
 
+	NID CMGraph::setFixedMarker(const std::string &fixed_marker_name,
+			const Precision p_ang/*=1e-4*/,
+			const Precision p_pos/*=1e-2*/)
+	{
+		Vec6T fixed_cov;
+		fixed_cov << p_ang, p_ang, p_ang, p_pos, p_pos, p_pos;
+		fixed_marker_id = newMarker(
+			Vec6T::Zero(),
+			fixed_cov.asDiagonal(), fixed_marker_name);
+		fixed_marker_pose = markers[fixed_marker_id];
+		return fixed_marker_id;
+	}
+
 	//fix input observations and camera intrinsic parameters,
 	//optimize and output marker and view poses
 	void CMGraph::BatchProcess(
@@ -350,17 +364,14 @@ namespace cmg {
 		G.calib = calib;
 
 		//1. setup fixed marker
-		Vec6T fixed_cov;
-		fixed_cov << p_ang, p_ang, p_ang, p_pos, p_pos, p_pos;
-		G.fixed_marker_id = G.newMarker(Vec6T::Zero(),
-			fixed_cov.asDiagonal(), fixed_marker_name);
-		G.fixed_marker_pose = G.markers[G.fixed_marker_id];
+		G.setFixedMarker(fixed_marker_name, p_ang, p_pos);
 
 		//2. process each frame
 		Veci frame_order;
 		Veci frame_todo;
 		range(0, static_cast<int>(frames.size()), 1, frame_order);
 		for(size_t i=0; i<frames.size(); ++i) {
+			//helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[BatchProcess.addObsFromNewView+optimizePose]");
 			const int ith = frame_order[i];
 			ObsArray& oa = const_cast<ObsArray&>(frames[ith]);
 			std::stringstream ss;
@@ -368,12 +379,15 @@ namespace cmg {
 			NID vid = G.addObsFromNewView(oa, ss.str());
 			if(vid==INVALID_NID) {
 				frame_todo.push_back(ith);
+				if(G.verbose) {
+					clogi("--------------------delayed view %d\n",ith);
+				}
 				continue;
 			}
 			G.optimizePose(sigma_u, max_iter_per_opt);
 
 			if(G.verbose) {
-				clogi("#markers=%d, #views=%d, #edges=%d | #parameters=%d, #residuals=%d"
+				clogi("#markers=%3d, #views=%3d, #edges=%4d | #parameters=%5d, #residuals=%6d"
 					" --------------------added view %d\n",
 					G.markers.size(), G.views.size(), G.edges.size(),
 					G.nParams(), G.nResiduals(),
@@ -382,7 +396,28 @@ namespace cmg {
 			}
 		}
 
-		//TODO: handle frame_todo
+		//3. handle delayed views
+		for(size_t i=0; i<frame_todo.size(); ++i) {
+			const int ith = frame_todo[i];
+			ObsArray& oa = const_cast<ObsArray&>(frames[ith]);
+			std::stringstream ss;
+			ss << "v" << ith;
+			NID vid = G.addObsFromNewView(oa, ss.str());
+			if(vid==INVALID_NID) {
+				clogi("view %d is not connected to the current graph, ignored!\n", ith);
+				continue; //TODO: better way to initialize the cmgraph, maybe using spanning tree
+			}
+			G.optimizePose(sigma_u, max_iter_per_opt);
+
+			if(G.verbose) {
+				clogi("#markers=%3d, #views=%3d, #edges=%4d | #parameters=%5d, #residuals=%6d"
+					" --------------------added delayed view %d\n",
+					G.markers.size(), G.views.size(), G.edges.size(),
+					G.nParams(), G.nResiduals(),
+					ith
+				);
+			}
+		}
 	}
 
 }

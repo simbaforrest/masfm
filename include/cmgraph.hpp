@@ -213,8 +213,8 @@ namespace cmg {
 		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 		std::string name;		//marker's name
-		Pose init_view_pose;	//view pose in marker, i.e., Tcm
-		Mat2x4T u;
+		Pose init_marker_pose;	//marker pose in view, i.e., Tmc
+		Mat2x4T u;				//observed marker corners in view
 
 		bool operator<(const Observation& other) const {
 			return perimeter(u) > perimeter(other.u);
@@ -279,8 +279,15 @@ namespace cmg {
 			return Pose::nParams();
 		}
 
+		NID setFixedMarker(const std::string &fixed_marker_name,
+			const Precision p_ang=1e-4,
+			const Precision p_pos=1e-2);
+
+		//add all observed markers in this view to the graph, and also add view and edges
+		//oa will be sorted by descending order of perimeters of the observed markers in the image
 		NID addObsFromNewView(ObsArray& oa, const std::string &view_name);
 
+		//bundle adjustment to optimize all markers' and views' poses
 		bool CMGraph::optimizePose(
 			const Precision sigma_u,
 			const int max_iter,
