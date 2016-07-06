@@ -15,6 +15,53 @@
 
 namespace cmg {
 
+	template<typename T>
+	static inline void transposeInPlace3x3(T R[9])
+	{
+		std::swap(R[1], R[3]);
+		std::swap(R[2], R[6]);
+		std::swap(R[5], R[7]);
+	}
+
+	template<typename T>
+	static inline void multAxAddb(const T A[9], const T x[3], const T b[3], T out[3]) //A is col-major
+	{
+		out[0] = A[0]*x[0] + A[3]*x[1] + A[6]*x[2] + b[0];
+		out[1] = A[1]*x[0] + A[4]*x[1] + A[7]*x[2] + b[1];
+		out[2] = A[2]*x[0] + A[5]*x[1] + A[8]*x[2] + b[2];
+	}
+
+	//return out=-R*t
+	template<typename T>
+	static inline void negRt(const T R[9], const T t[3], T out[3]) //R is col-major
+	{
+		out[0] = -( R[0]*t[0] + R[3]*t[1] + R[6]*t[2] );
+		out[1] = -( R[1]*t[0] + R[4]*t[1] + R[7]*t[2] );
+		out[2] = -( R[2]*t[0] + R[5]*t[1] + R[8]*t[2] );
+	}
+
+	struct InversePoseFunctor {
+		//q = f(p), f(.) inverse pose p to pose q
+		template <typename T>
+		bool operator()(
+			const T* const pose,
+			T* residuals) const
+		{
+			T R[9];
+			const T * const t = pose+3;
+			ceres::AngleAxisToRotationMatrix(pose, R); //column-major
+			transposeInPlace3x3(R);
+			
+			T *Ri = &R[0];
+			T *ti = residuals+3;
+			negRt(Ri, t, ti);
+
+			ceres::RotationMatrixToAngleAxis(Ri, residuals);
+
+			return true;
+		}
+	};
+
 #if 0
 	struct MarkerReprojectionError
 	{
@@ -22,30 +69,6 @@ namespace cmg {
 		const EID eid;
 
 		MarkerReprojectionError(const CMGraph& G_, const EID& eid_) : G(G_), eid(eid_) {}
-
-		template<typename T>
-		static inline void transposeInPlace3x3(T R[9])
-		{
-			std::swap(R[1], R[3]);
-			std::swap(R[2], R[6]);
-			std::swap(R[5], R[7]);
-		}
-
-		template<typename T>
-		static inline void multAxAddb(T A[9], T x[3], T b[3], T out[3]) //A is col-major
-		{
-			out[0] = A[0]*x[0] + A[3]*x[1] + A[6]*x[2] + b[0];
-			out[1] = A[1]*x[0] + A[4]*x[1] + A[7]*x[2] + b[1];
-			out[2] = A[2]*x[0] + A[5]*x[1] + A[8]*x[2] + b[2];
-		}
-
-		template<typename T>
-		static inline void negRt(T R[9], T t[3], T out[3]) //R is col-major
-		{
-			out[0] = -( R[0]*t[0] + R[3]*t[1] + R[6]*t[2] );
-			out[1] = -( R[1]*t[0] + R[4]*t[1] + R[7]*t[2] );
-			out[2] = -( R[2]*t[0] + R[5]*t[1] + R[8]*t[2] );
-		}
 
 		template <typename T>
 		bool operator()(
@@ -156,16 +179,37 @@ namespace cmg {
 	void CMGraph::report(std::ofstream& out) const
 	{
 		Eigen::IOFormat fmt(Eigen::FullPrecision, Eigen::DontAlignCols);
+		//1. markers
 		out << markers.size() << std::endl;
 		for(size_t mid=0; mid<markers.size(); ++mid) {
 			const Node& m = markers[mid];
 			out << m.name << " " << m.p.transpose().format(fmt) << std::endl;
-		}
+			out << m.Cp.format(fmt) << std::endl;
 
+			out << "\t" << m.vmeids.size();
+			for(size_t k=0; k<m.vmeids.size(); ++k) {
+				out << " " << m.vmeids[k];
+			}
+			out << std::endl;
+		}
+		//2. views
 		out << views.size() << std::endl;
 		for(size_t vid=0; vid<views.size(); ++vid) {
 			const Node& v = views[vid];
 			out << v.name << " " << v.p.transpose().format(fmt) << std::endl;
+			out << v.Cp.format(fmt) << std::endl;
+
+			out << "\t" << v.vmeids.size();
+			for(size_t k=0; k<v.vmeids.size(); ++k) {
+				out << " " << v.vmeids[k];
+			}
+			out << std::endl;
+		}
+		//3. edges
+		out << edges.size() << std::endl;
+		for(size_t eid=0; eid<edges.size(); ++eid) {
+			const Edge& e = edges[eid];
+			out << e.vid << " " << e.mid << std::endl;
 		}
 	}
 
@@ -267,7 +311,8 @@ namespace cmg {
 		const Precision sigma_u,
 		const int max_iter,
 		const Precision huber_loss_bandwidth/*=10*/,
-		const Precision error_rel_tol/*=1e-2*/)
+		const Precision error_rel_tol/*=1e-2*/,
+		const bool computeCovariance/*=false*/)
 	{
 		//0. collect all view's poses and invert them
 		Vec6TArray inv_view_poses(views.size());
@@ -311,6 +356,9 @@ namespace cmg {
 		ceres::Solve(options, &problem, &summary);
 		logld(summary.BriefReport());
 
+		if(summary.termination_type == ceres::FAILURE)
+			return false;
+
 		//3. update
 		for(size_t eid=0; eid<edges.size(); ++eid) {
 			const Edge& edge = edges[eid];
@@ -318,14 +366,54 @@ namespace cmg {
 			view.p = Pose(inv_view_poses[edge.vid]).invp(); //update the view pose
 		}
 
-		if(summary.termination_type == ceres::FAILURE)
-			return false;
+		if(computeCovariance) {
+			ceres::Covariance::Options cov_options;
+			cov_options.algorithm_type = ceres::DENSE_SVD; //TODO: switch depends on #parameters
+
+			ceres::Covariance covariance(cov_options);
+			std::vector< std::pair<const double*, const double*> > cov_blocks;
+			for(size_t mid=0; mid<markers.size(); ++mid) {
+				Node& marker = markers[mid];
+				cov_blocks.push_back(std::make_pair(
+					marker.p.data(), marker.p.data()));
+			}
+			for(size_t vid=0; vid<views.size(); ++vid) {
+				cov_blocks.push_back(std::make_pair(
+					inv_view_poses[vid].data(), inv_view_poses[vid].data()));
+			}
+
+			if(!covariance.Compute(cov_blocks, &problem)) {
+				cloge("BA: covariance.Compute failed!");
+			} else {
+				const Precision sigma_u2 = sigma_u*sigma_u;
+
+				for(size_t mid=0; mid<markers.size(); ++mid) {
+					Node& marker = markers[mid];
+					//http://ceres-solver.org/solving.html#GetCovarianceBlock__doubleCP.doubleCP.doublePC
+					covariance.GetCovarianceBlock(marker.p.data(), marker.p.data(), marker.Cp.data());
+					marker.Cp *= sigma_u2;
+				}
+
+				ceres::AutoDiffCostFunction<InversePoseFunctor, 6, 6> adipf(new InversePoseFunctor());
+				for(size_t vid=0; vid<views.size(); ++vid) {
+					Node& view = views[vid];
+					covariance.GetCovarianceBlock(inv_view_poses[vid].data(), inv_view_poses[vid].data(), view.Cp.data());
+					Vec6T p;
+					Mat6T Jt;
+					double const * ip = inv_view_poses[vid].data();
+					double *pJt = Jt.data();
+					//http://ceres-solver.org/modeling.html#CostFunction::Evaluate__doubleCPCP.doubleP.doublePP
+					adipf.Evaluate(&ip, p.data(), &pJt);
+					view.Cp = Jt.transpose() * view.Cp * Jt * sigma_u2;
+				}
+			}//covariance.Compute
+		}
 
 		if(verbose) {
-			clogi("BA: exitflag=%d, #iter=%d, time=%f s\n",
+			clogi("BA: exitflag=%d, #iter=%d, time=%f ms\n",
 				summary.termination_type,
 				summary.iterations.size(),
-				summary.total_time_in_seconds
+				summary.total_time_in_seconds*1000
 			);
 			clogi("    norm(err)/size(err) = %f -> %f\n",
 				summary.initial_cost/summary.num_residuals,
@@ -398,6 +486,7 @@ namespace cmg {
 
 		//3. handle delayed views
 		for(size_t i=0; i<frame_todo.size(); ++i) {
+			//helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[BatchProcess.addObsFromNewView+optimizePose]");
 			const int ith = frame_todo[i];
 			ObsArray& oa = const_cast<ObsArray&>(frames[ith]);
 			std::stringstream ss;
@@ -417,6 +506,15 @@ namespace cmg {
 					ith
 				);
 			}
+		}
+
+		//4. get covariance
+		{
+			helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[BatchProcess.optimizePose covariance]");
+			G.optimizePose(sigma_u, 1, 10, 0.01, true);
+		}
+		if(G.verbose) {
+			clogi("========================compute all covariance\n");
 		}
 	}
 

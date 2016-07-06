@@ -292,7 +292,8 @@ namespace cmg {
 			const Precision sigma_u,
 			const int max_iter,
 			const Precision huber_loss_bandwidth=10, // +/- 10 pixels
-			const Precision error_rel_tol=1e-2);
+			const Precision error_rel_tol=1e-2,
+			const bool computeCovariance=false);
 
 	public: //static functions
 		//return 2D coordinates of a marker's 4 corners
