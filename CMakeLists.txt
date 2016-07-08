@@ -112,3 +112,6 @@ target_link_libraries(masfm debug ${LIBGLOG_LIB_DEBUG} ${CERES_LIB_DEBUG})
 
 set_target_properties(${ProjectName} PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/bin")
 
+INSTALL(TARGETS masfm DESTINATION bin)
+INSTALL(FILES source/masfm.ini data/masfm.in DESTINATION bin)
+INSTALL(TARGETS cmgraph DESTINATION lib)
