@@ -110,13 +110,15 @@ int process_batch()
 	static Precision p_pos = helper::iniGet<Precision>("p_pos", 1e-2);
 	static Precision sigma_u = helper::iniGet<Precision>("sigma_u", 0.2);
 	static int max_iter_per_opt = helper::iniGet<int>("max_iter_per_opt", 20);
+	static bool do_covariance_estimation = helper::iniGet<bool>("do_covariance_estimation", true);
 
 	VecObsArray frames;
 	load_all_frames(frames);
 
 	{
 		helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[CMGraph.BatchProcess]");
-		CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt);
+		CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt,
+			do_covariance_estimation);
 	}
 
 	save_graph_states(G);
@@ -171,6 +173,15 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 
 	virtual ~AprilTagProcessor()
 	{
+		using namespace cmg;
+		if(helper::iniGet<bool>("do_covariance_estimation",true) && !G.empty()) {
+			static Precision sigma_u = helper::iniGet<Precision>("sigma_u", 0.2);
+			static int max_iter_per_opt = helper::iniGet<int>("max_iter_per_opt", 8) * 2;
+			G.optimizePose(sigma_u, max_iter_per_opt, 10, 0.01, true);
+			if(G.verbose) {
+				clogi("========================compute all covariance\n");
+			}
+		}
 		save_graph_states(G);
 	}
 
@@ -309,10 +320,13 @@ int process_live()
 		return -1;
 	}
 	is->reportInfo();
+	bool isPhoto = is->isClass<helper::ImageSource_Photo>();
+	if(isPhoto && is->done())
+		return -1;
 
 	AprilTagProcessor processor;
 
-	processor.isPhoto = is->isClass<helper::ImageSource_Photo>();
+	processor.isPhoto = isPhoto;
 	processor.outputDir = helper::iniGet<std::string>("outputDir", is->getSourceDir());
 	tagli("detection will be logged to outputDir="<<processor.outputDir);
 	is->run(processor,-1, false,
@@ -350,5 +364,10 @@ int main(const int argc, const char **argv, const char** envp )
 	helper::iniLoad(envp, "masfm_", true);
 	logli("");
 
-	return process();
+	try {
+		return process();
+	} catch(...) {
+		tagle("catched some exceptions, exit!");
+		return -1;
+	}
 }

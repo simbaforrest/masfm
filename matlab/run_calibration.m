@@ -2,9 +2,9 @@ function [K,distCoeffs]=run_calibration(url)
 if ~exist('url','var') || isempty(url)
     url='camera://0';
 end
-exe=fullfile('bin','AprilCalib.exe');
+exe=fullfile(pwd,'bin','AprilCalib.exe');
 tagfamiliesID='4';
-outputDir=fullfile('bin','log','AprilCalib');
+outputDir=fullfile(pwd,'bin','log','AprilCalib');
 if exist(outputDir,'dir')
     rmdir(outputDir,'s');
 end

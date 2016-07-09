@@ -4,25 +4,50 @@ G=cmgraph(K,d,half_marker_length);
 if ~exist('url','var') || isempty(url)
     url='camera://0';
 end
-exe=fullfile('bin','masfm.exe');
+exe=fullfile(pwd,'bin','masfm.exe');
 tagfamiliesID='4';
-outputDir=fullfile('bin','log','masfm');
+outputDir=fullfile(pwd,'bin','log','masfm');
 if exist(outputDir,'dir')
     rmdir(outputDir,'s');
 end
 mkdir(outputDir);
 
 fprintf('================================\n');
-setenv('masfm_input',url);
-setenv('masfm_tagfamiliesID',tagfamiliesID);
-setenv('masfm_output',fullfile(outputDir,'masfm.out'));
-setenv('masfm_ImageSource:pause','false');
-setenv('masfm_ImageSource:loop','false');
-fprintf('executing: %s >c:/users/Chen/downloads/test.log\n',exe);
+my_setenv('input',url);
+my_setenv('tagfamiliesID',tagfamiliesID);
+my_setenv('output',fullfile(outputDir,'masfm.out'));
+my_setenv('outputDir',outputDir);
+my_setenv('marker_half_size',num2str(half_marker_length));
+
+k=pgk2K(K);
+my_setenv('fx',num2str(k(1)));
+my_setenv('fy',num2str(k(2)));
+my_setenv('cx',num2str(k(3)));
+my_setenv('cy',num2str(k(4)));
+my_setenv('k1',num2str(d(1)));
+my_setenv('k2',num2str(d(2)));
+
+my_setenv('ImageSource:pause','false');
+my_setenv('ImageSource:loop','false');
+
+fprintf('executing: %s %s\n',exe,fullfile(pwd,'bin','masfm.ini'));
+
 [status, result]=system(exe);
+fid=fopen(fullfile(outputDir,'masfm.log'),'w');
+if fid<0
+  disp(result);
+else
+  fprintf(fid,'%s',result);
+  fclose(fid);
+end
 if status~=0
     error(result);
 end
 
 G=load_cmgraph(fullfile(outputDir,'masfm.out'),G);
+end
+
+%%helper
+function my_setenv(name, str)
+setenv(['masfm_',name], str);
 end

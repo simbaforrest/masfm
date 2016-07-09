@@ -72,8 +72,8 @@ namespace cmg {
 		{
 			std::cout<<"k="<<k.transpose()<<std::endl;
 			std::cout<<"d="<<d.transpose()<<std::endl;
-			std::cout<<"Ck=\n"<<Ck<<std::endl;
-			std::cout<<"Cd=\n"<<Cd<<std::endl;
+			//std::cout<<"Ck=\n"<<Ck<<std::endl; //TODO: Ck, Cd not used yet
+			//std::cout<<"Cd=\n"<<Cd<<std::endl;
 		}
 
 		template<typename T>
@@ -279,6 +279,11 @@ namespace cmg {
 			return Pose::nParams();
 		}
 
+		inline bool empty() const
+		{
+			return nParams()<=0;
+		}
+
 		NID setFixedMarker(const std::string &fixed_marker_name,
 			const Precision p_ang=1e-4,
 			const Precision p_pos=1e-2);
@@ -332,7 +337,8 @@ namespace cmg {
 			const Precision p_ang=1e-4,
 			const Precision p_pos=1e-2,
 			const Precision sigma_u=0.2,
-			const int max_iter_per_opt=20);
+			const int max_iter_per_opt=20,
+			const bool do_covariance_estimation=true);
 
 	protected:
 		NID newMarker(const Vec6T& p, const Mat6T& Cp, const std::string& name);

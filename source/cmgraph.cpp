@@ -447,7 +447,8 @@ namespace cmg {
 		const Precision p_ang/*=1e-4*/,
 		const Precision p_pos/*=1e-2*/,
 		const Precision sigma_u/*=0.2*/,
-		const int max_iter_per_opt/*=20*/ )
+		const int max_iter_per_opt/*=20*/,
+		const bool do_covariance_estimation/*=true*/)
 	{
 		G.calib = calib;
 
@@ -509,12 +510,13 @@ namespace cmg {
 		}
 
 		//4. get covariance
+		if(do_covariance_estimation)
 		{
 			helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[BatchProcess.optimizePose covariance]");
 			G.optimizePose(sigma_u, 1, 10, 0.01, true);
-		}
-		if(G.verbose) {
-			clogi("========================compute all covariance\n");
+			if(G.verbose) {
+				clogi("========================compute all covariance\n");
+			}
 		}
 	}
 

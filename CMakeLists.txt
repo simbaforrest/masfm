@@ -10,6 +10,14 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/")
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/)
 include(${CMAKE_SOURCE_DIR}/cmake/Specify3rdparty.cmake)
 
+IF(NOT CMAKE_BUILD_TYPE)
+	SET(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+ENDIF()
+
+if(NOT CMAKE_INSTALL_PREFIX)
+	set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/matlab/ CACHE PATH ${CMAKE_SOURCE_DIR}/matlab/)
+endif()
+
 ####### LCH
 Specify3rdparty(
 	LCH
@@ -26,6 +34,10 @@ Specify3rdparty(
 	apriltag/apriltag.hpp
 )
 include(${CV2CG_INCLUDE_DIR}/../cmake/SetCV2CGDependencies.cmake)
+include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAppConfig.cmake)
+include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAddSubDir.cmake)
+include(${CV2CG_INCLUDE_DIR}/../cmake/BuildLCMType.cmake)
+ADD_SUBDIRECTORY(${CV2CG_INCLUDE_DIR}/../application)
 ADD_DEFINITIONS(-DOPENCV_FOUND)
 MESSAGE(STATUS "CV2CG_3RDPARTY_LINKEROPTION: " ${CV2CG_3RDPARTY_LINKEROPTION})
 

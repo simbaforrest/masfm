@@ -1,4 +1,4 @@
-function plot_cmgraph(G,doNewFig,doPlotMarkers,doPlotEdges)
+function plot_cmgraph(G,doNewFig,doPlotEdges,doPlotMarkers)
 if ~exist('doNewFig','var'); doNewFig=true; end;
 if ~exist('doPlotMarkers','var'); doPlotMarkers=true; end;
 if ~exist('doPlotEdges','var'); doPlotEdges=1; end;
