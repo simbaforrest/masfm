@@ -33,6 +33,8 @@ Specify3rdparty(
 	"include directory for cv2cg"
 	apriltag/apriltag.hpp
 )
+SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CV2CG_INCLUDE_DIR}/../cmake/)
+include(${CV2CG_INCLUDE_DIR}/../cmake/FindLCM.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/SetCV2CGDependencies.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAppConfig.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAddSubDir.cmake)
