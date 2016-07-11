@@ -1,4 +1,8 @@
-function G=run_masfm(K,d,half_marker_length,url)
+function G=run_masfm(K,d,half_marker_length,url,fixed_marker_name)
+if ~exist('fixed_marker_name','var')
+  fixed_marker_name='null';
+end
+
 G=cmgraph(K,d,half_marker_length);
 
 if ~exist('url','var') || isempty(url)
@@ -18,6 +22,7 @@ my_setenv('tagfamiliesID',tagfamiliesID);
 my_setenv('output',fullfile(outputDir,'masfm.out'));
 my_setenv('outputDir',outputDir);
 my_setenv('marker_half_size',num2str(half_marker_length));
+my_setenv('fixed_marker_name',fixed_marker_name);
 
 k=pgk2K(K);
 my_setenv('fx',num2str(k(1)));
@@ -30,9 +35,10 @@ my_setenv('k2',num2str(d(2)));
 my_setenv('ImageSource:pause','false');
 my_setenv('ImageSource:loop','false');
 
-fprintf('executing: %s %s\n',exe,fullfile(pwd,'bin','masfm.ini'));
+cmd=sprintf('%s %s',exe,fullfile(pwd,'bin','masfm.ini'));
+fprintf('executing: %s\n', cmd);
 
-[status, result]=system(exe);
+[status, result]=system(cmd);
 fid=fopen(fullfile(outputDir,'masfm.log'),'w');
 if fid<0
   disp(result);

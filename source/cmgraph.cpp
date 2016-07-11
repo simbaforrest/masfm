@@ -151,6 +151,18 @@ namespace cmg {
 			
 			return true;
 		}
+
+		//only optimize pose of a view
+		template <typename T>
+		inline bool operator()(
+			const T* const view_pose_inverse,
+			T* residuals) const
+		{
+			const Vec6T& mp = G.markers[G.edges[eid].mid].p;
+			T marker_pose[6] = { T(mp(0)), T(mp(1)), T(mp(2)), T(mp(3)), T(mp(4)), T(mp(5)) };
+
+			return (*this)(view_pose_inverse, marker_pose, residuals);
+		}
 	};
 
 	struct FixedMarkerError {
@@ -246,7 +258,7 @@ namespace cmg {
 		return vid;
 	}
 
-	EID CMGraph::newEdge(const int vid, const int mid, const MatT& u)
+	EID CMGraph::newEdge(const NID vid, const NID mid, const MatT& u)
 	{
 		Edge edge;
 		edge.vid=vid;
@@ -265,7 +277,10 @@ namespace cmg {
 		return eid;
 	}
 
-	NID CMGraph::addObsFromNewView( ObsArray& oa, const std::string &view_name )
+	NID CMGraph::addObsFromNewView(
+		ObsArray& oa,
+		const std::string &view_name,
+		const bool addNewMarker/*=true*/)
 	{
 		//sort by perimeter descending order
 		std::sort(oa.begin(), oa.end());
@@ -297,14 +312,144 @@ namespace cmg {
 		for(size_t i=0; i<oa.size(); ++i) {
 			const Observation& obs = oa[i];
 			int midi = mids[i];
-			if(midi==INVALID_NID) { //new markers
+			if(midi==INVALID_NID && addNewMarker) { //new markers
 				Mat4T Tmc = obs.init_marker_pose.toT();
 				Tmw = Tcw * Tmc;
 				midi = newMarker(Pose::T2p(Tmw), Mat6T::Identity(), obs.name);
 			}
-			newEdge(vid, midi, obs.u);
+			if(midi!=INVALID_NID)
+				newEdge(vid, midi, obs.u);
 		}
 		return vid;
+	}
+
+	bool CMGraph::optimizeNewViewPose(
+		ObsArray& oa,
+		Node& newView,
+		const Precision sigma_u,
+		const int max_iter,
+		const Precision huber_loss_bandwidth/*=10*/, // +/- 10 pixels
+		const Precision error_rel_tol/*=1e-2*/,
+		const bool computeCovariance/*=false*/)
+	{
+		const int nedges_old = edges.size();
+		NID vid = addObsFromNewView(oa, "vNow", false);
+		const int nedges_new = edges.size();
+
+		if(vid==INVALID_NID) return false;
+		bool ret = optimizeOneViewPose(vid,
+			sigma_u, max_iter,
+			huber_loss_bandwidth, error_rel_tol,
+			computeCovariance);
+		newView = views[vid];
+
+		for(size_t scan=0; scan<newView.vmeids.size(); ++scan) {
+			const EID eid = newView.vmeids[scan];
+			const Edge& e = edges[eid];
+			Node& nd = markers[e.mid];
+			if(eid==nd.vmeids[nd.vmeids.size()-1])
+				nd.vmeids.resize(nd.vmeids.size()-1);
+			else //this should not happen
+				nd.vmeids.erase(
+					std::remove(nd.vmeids.begin(), nd.vmeids.end(), eid),
+					nd.vmeids.end()
+				);
+		}
+		edges.resize(nedges_old);
+		views.resize(views.size()-1);
+		return ret;
+	}
+
+	bool CMGraph::optimizeOneViewPose(
+		const NID vid,
+		const Precision sigma_u,
+		const int max_iter,
+		const Precision huber_loss_bandwidth/*=10*/, // +/- 10 pixels
+		const Precision error_rel_tol/*=1e-2*/,
+		const bool computeCovariance/*=false*/)
+	{
+		if(vid==INVALID_NID) return false;
+		Node& theView = views[vid];
+		Vec6T inv_view_pose = theView.invp();
+
+		//1. push residuals into ceres
+		ceres::Problem problem; //TODO: make problem a member variable so this process is faster
+		ceres::LossFunction* lossFunc = new ceres::HuberLoss(huber_loss_bandwidth);
+
+		//1.1 marker observation residuals
+		for(size_t scan=0; scan<theView.vmeids.size(); ++scan) {
+			const EID eid = theView.vmeids[scan];
+			const Edge& edge = edges[eid];
+
+			if(vid!=edge.vid) {
+				tagle("what?!");
+				continue;
+			}
+			Precision *view_pose_inverse = inv_view_pose.data();
+
+			ceres::CostFunction* costFunc =
+				new ceres::AutoDiffCostFunction<MarkerReprojectionError2, 8, 6>
+				(new MarkerReprojectionError2(*this, static_cast<int>(eid)));
+
+			problem.AddResidualBlock(costFunc, lossFunc, view_pose_inverse);
+		}
+
+		//2. solve
+		ceres::Solver::Options options;
+		options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY; //TODO: SPARSE_SCHUR?
+		options.minimizer_progress_to_stdout = (helper::GetOrSetLogLevel()>=helper::LOG_DEBUG);
+		options.max_num_iterations = max_iter;
+		options.function_tolerance = error_rel_tol;
+
+		ceres::Solver::Summary summary;
+		ceres::Solve(options, &problem, &summary);
+		logld(summary.BriefReport());
+
+		if(summary.termination_type == ceres::FAILURE)
+			return false;
+
+		//3. update
+		theView.p = Pose(inv_view_pose).invp();
+
+		if(computeCovariance) {
+			ceres::Covariance::Options cov_options;
+			cov_options.algorithm_type = ceres::DENSE_SVD; //TODO: switch depends on #parameters
+
+			ceres::Covariance covariance(cov_options);
+			std::vector< std::pair<const double*, const double*> > cov_blocks;
+			cov_blocks.push_back(std::make_pair(
+					inv_view_pose.data(), inv_view_pose.data()));
+
+			if(!covariance.Compute(cov_blocks, &problem)) {
+				cloge("BA: covariance.Compute failed!");
+			} else {
+				const Precision sigma_u2 = sigma_u*sigma_u;
+
+				ceres::AutoDiffCostFunction<InversePoseFunctor, 6, 6> adipf(new InversePoseFunctor());
+				covariance.GetCovarianceBlock(inv_view_pose.data(), inv_view_pose.data(), theView.Cp.data());
+				Vec6T p;
+				Mat6T Jt;
+				double const * ip = inv_view_pose.data();
+				double *pJt = Jt.data();
+				//http://ceres-solver.org/modeling.html#CostFunction::Evaluate__doubleCPCP.doubleP.doublePP
+				adipf.Evaluate(&ip, p.data(), &pJt);
+				theView.Cp = Jt.transpose() * theView.Cp * Jt * sigma_u2;
+			}//covariance.Compute
+		}
+
+		if(verbose) {
+			clogi("BA: exitflag=%d, #iter=%d, time=%f ms\n",
+				summary.termination_type,
+				summary.iterations.size(),
+				summary.total_time_in_seconds*1000
+			);
+			clogi("    norm(err)/size(err) = %f -> %f\n",
+				summary.initial_cost/summary.num_residuals,
+				summary.final_cost/summary.num_residuals
+			);
+		}
+
+		return true;
 	}
 
 	bool CMGraph::optimizePose(

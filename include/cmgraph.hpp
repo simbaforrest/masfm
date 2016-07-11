@@ -90,6 +90,13 @@ namespace cmg {
 			U[0] = fx*xnp+cx;
 			U[1] = fy*ynp+cy;
 		}
+
+		Vec2T project(const Vec3T& X) const
+		{
+			Vec2T ret;
+			project(X.data(), ret.data());
+			return ret;
+		}
 	};
 
 	//6D pose
@@ -100,6 +107,11 @@ namespace cmg {
 		EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 		static int nParams() { return 6; }
+
+		inline Vec3T transform(const Vec3T& X) const
+		{
+			return (toT() * X.homogeneous()).hnormalized();
+		}
 
 		//return rotation matrix R
 		inline Mat3T R() const
@@ -290,10 +302,30 @@ namespace cmg {
 
 		//add all observed markers in this view to the graph, and also add view and edges
 		//oa will be sorted by descending order of perimeters of the observed markers in the image
-		NID addObsFromNewView(ObsArray& oa, const std::string &view_name);
+		NID addObsFromNewView(
+			ObsArray& oa,
+			const std::string &view_name,
+			const bool addNewMarker=true);
+
+		bool optimizeNewViewPose(
+			ObsArray& oa,
+			Node& newView,
+			const Precision sigma_u,
+			const int max_iter,
+			const Precision huber_loss_bandwidth=10, // +/- 10 pixels
+			const Precision error_rel_tol=1e-2,
+			const bool computeCovariance=false);
+
+		bool optimizeOneViewPose(
+			const NID vid,
+			const Precision sigma_u,
+			const int max_iter,
+			const Precision huber_loss_bandwidth=10, // +/- 10 pixels
+			const Precision error_rel_tol=1e-2,
+			const bool computeCovariance=false);
 
 		//bundle adjustment to optimize all markers' and views' poses
-		bool CMGraph::optimizePose(
+		bool optimizePose(
 			const Precision sigma_u,
 			const int max_iter,
 			const Precision huber_loss_bandwidth=10, // +/- 10 pixels
@@ -345,6 +377,6 @@ namespace cmg {
 
 		NID newView(const Vec6T& p, const Mat6T& Cp, const std::string& name);
 
-		EID newEdge(const int vid, const int mid, const MatT& u);
+		EID newEdge(const NID vid, const NID mid, const MatT& u);
 	};
 }

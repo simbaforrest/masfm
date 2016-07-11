@@ -141,8 +141,9 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 	bool logVisFrame;
 	std::string outputDir;
 	int hammingThresh;
+	bool doPerViewOpt;
 
-	AprilTagProcessor() : doLog(false), doRecord(false), isPhoto(false)
+	AprilTagProcessor() : doLog(false), doRecord(false), isPhoto(false), doPerViewOpt(false)
 	{
 		tagTextScale = helper::iniGet<double>("tagTextScale",0.4f);
 		tagTextThickness = helper::iniGet<int>("tagTextThickness",1);
@@ -169,6 +170,14 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 		G.marker_half_size = helper::iniGet<cmg::Precision>("marker_half_size", 0.1);
 		G.verbose = helper::iniGet<bool>("verbose", true);
 		G.print();
+
+		using namespace cmg;
+		static Precision p_ang = helper::iniGet<Precision>("p_ang", 1e-4);
+		static Precision p_pos = helper::iniGet<Precision>("p_pos", 1e-2);
+		std::string fixed_name = helper::iniGet<std::string>("fixed_marker_name","");
+		if(!fixed_name.empty() && fixed_name!="null") {
+			G.setFixedMarker(fixed_name, p_ang, p_pos);
+		}
 	}
 
 	virtual ~AprilTagProcessor()
@@ -185,21 +194,17 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 		save_graph_states(G);
 	}
 
-	bool addDetections2CMGraph(std::vector<TagDetection>& detections)
+	void detections2ObsArray(const std::vector<TagDetection>& detections,
+		cmg::ObsArray& oa)
 	{
-		if(detections.size()<2) return false; //no need to add view with only 1 or 0 marker
-
 		using namespace cmg;
 		static Precision p_ang = helper::iniGet<Precision>("p_ang", 1e-4);
 		static Precision p_pos = helper::iniGet<Precision>("p_pos", 1e-2);
-		static Precision sigma_u = helper::iniGet<Precision>("sigma_u", 0.2);
-		static int max_iter_per_opt = helper::iniGet<int>("max_iter_per_opt", 8);
 
 		Mat3T Kt = G.calib.K().transpose(); //note Kt is in column major
 
-		ObsArray oa;
 		for(int i=0; i<(int)detections.size(); ++i) {
-			TagDetection &dd = detections[i];
+			const TagDetection &dd = detections[i];
 			if(dd.hammingDistance>this->hammingThresh) continue;
 
 			if(G.markers.empty()) { //init the fixed marker
@@ -220,6 +225,18 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 
 			oa.push_back(obs);
 		}
+	}
+
+	bool addDetections2CMGraph(const std::vector<TagDetection>& detections)
+	{
+		if(detections.size()<2) return false; //no need to add view with only 1 or 0 marker
+
+		using namespace cmg;
+		static Precision sigma_u = helper::iniGet<Precision>("sigma_u", 0.2);
+		static int max_iter_per_opt = helper::iniGet<int>("max_iter_per_opt", 8);
+
+		ObsArray oa;
+		detections2ObsArray(detections, oa);
 
 		NID ith = G.views.size();
 		std::stringstream ss;
@@ -245,6 +262,46 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 		}
 
 		return true;
+	}
+
+	bool optimizeThisView(const std::vector<TagDetection>& detections, cmg::Node& newView)
+	{
+		if(detections.size()<2) return false; //no need to add view with only 1 or 0 marker
+
+		using namespace cmg;
+		static Precision sigma_u = helper::iniGet<Precision>("sigma_u", 0.2);
+		static int max_iter_per_opt = helper::iniGet<int>("max_iter_per_opt", 8);
+
+		ObsArray oa;
+		detections2ObsArray(detections, oa);
+
+		return G.optimizeNewViewPose(oa, newView, sigma_u, max_iter_per_opt, 10, 0.01, true);
+	}
+
+	void plot3dOnFrame(cv::Mat& frame, const cmg::Node& view)
+	{
+		using namespace cmg;
+		const Precision l = G.marker_half_size*2;
+		const Vec3T X(l,0,0);
+		const Vec3T Y(0,l,0);
+		const Vec3T Z(0,0,l);
+		static Precision Ox=helper::iniGet<Precision>("Ox",0);
+		static Precision Oy=helper::iniGet<Precision>("Oy",0);
+		static Precision Oz=helper::iniGet<Precision>("Oz",0);
+		const Vec3T O(Ox,Oy,Oz);
+
+		cmg::Pose inv_view(view.invp());
+		const Vec2T x = G.calib.project(inv_view.transform(X+O));
+		const Vec2T y = G.calib.project(inv_view.transform(Y+O));
+		const Vec2T z = G.calib.project(inv_view.transform(Z+O));
+		const Vec2T o = G.calib.project(inv_view.transform(O));
+
+		cv::line(frame, cv::Point(int(o(0)),int(o(1))),
+			cv::Point(int(x(0)),int(x(1))), helper::CV_BLUE, 2);
+		cv::line(frame, cv::Point(int(o(0)),int(o(1))),
+			cv::Point(int(y(0)),int(y(1))), helper::CV_GREEN, 2);
+		cv::line(frame, cv::Point(int(o(0)),int(o(1))),
+			cv::Point(int(z(0)),int(z(1))), helper::CV_RED, 2);
 	}
 
 	/////// Override
@@ -279,6 +336,11 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 			doLog=false;
 			addDetections2CMGraph(detections);
 			//TODO: save logged frame to outputDir
+		} else if(doPerViewOpt) {
+			cmg::Node newView;
+			if(optimizeThisView(detections, newView)) {
+				plot3dOnFrame(frame, newView);
+			}
 		}
 
 		cv::putText( frame,
@@ -294,6 +356,8 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 			logli("[AprilTagProcessor] gDetector.segDecimate="<<gDetector->segDecimate); break;
 		case 'l':
 			doLog=true; break;
+		case 'o':
+			doPerViewOpt=!doPerViewOpt; break;
 		case 'v':
 			G.verbose=!G.verbose; break;
 		case '1':
@@ -304,6 +368,7 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 			std::cout<<
 				"d: segDecimate\n"
 				"l: do log\n"
+				"o: do per view pose estimation\n"
 				"v: toggle verbose\n"
 				"1: debug output\n"
 				"2: info output\n"
