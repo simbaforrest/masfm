@@ -58,7 +58,9 @@ this.calib.d = d;
 this.calib.Ck=eye(length(this.calib.k));
 this.calib.Cd=eye(length(this.calib.d));
 
-this.name2mid = containers.Map('KeyType','char','ValueType','int32');
+if exist('OCTAVE_VERSION', 'builtin') == 0
+  this.name2mid = containers.Map('KeyType','char','ValueType','int32');
+end
 
 this.marker_x = [-1,-1;1,-1;1,1;-1,1]'*l;
 this.marker_X = [[-1,-1;1,-1;1,1;-1,1]';zeros(1,4)]*l;

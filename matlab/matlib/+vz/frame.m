@@ -24,7 +24,11 @@ if ~prev_is_hold
   hold on;
 end
 
-hframe=hgtransform('HitTest',opts.hittest);
+if exist('OCTAVE_VERSION', 'builtin') == 0
+  hframe=hgtransform('HitTest',opts.hittest);
+else
+  hframe=gcf;
+end
 addChild=@(hc) set(hc, 'Parent', hframe);
 
 if length(t)==3 % plot 3d frame

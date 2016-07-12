@@ -6,13 +6,16 @@ end
 G=cmgraph(K,d,half_marker_length);
 
 if ~exist('url','var') || isempty(url)
-    url='camera://0';
+  url='camera://0';
 end
 exe=fullfile(pwd,'bin','masfm.exe');
 tagfamiliesID='4';
 outputDir=fullfile(pwd,'bin','log','masfm');
 if exist(outputDir,'dir')
-    rmdir(outputDir,'s');
+  if exist('OCTAVE_VERSION', 'builtin') ~= 0
+    confirm_recursive_rmdir(false)
+  end
+  rmdir(outputDir,'s');
 end
 mkdir(outputDir);
 
@@ -47,7 +50,7 @@ else
   fclose(fid);
 end
 if status~=0
-    error(result);
+  error(result);
 end
 
 G=load_cmgraph(fullfile(outputDir,'masfm.out'),G);

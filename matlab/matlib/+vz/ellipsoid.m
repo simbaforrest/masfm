@@ -19,7 +19,9 @@ if length(c)==3 % 3D ellipsoid
   y=reshape(p(2,:)+c(2),sz);
   z=reshape(p(3,:)+c(3),sz);
   h=mesh(x, y, z, clr, varargin{:});
-  alpha(0.3); %see occluded part also
+  if exist('OCTAVE_VERSION', 'builtin') == 0
+    alpha(0.3); %see occluded part also
+  end
 elseif length(c)==2 % 2D ellipse
   assert(size(E,1)==2 && size(E,2)==2);
   [Q,D]=eig(E);
