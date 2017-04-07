@@ -1,6 +1,9 @@
 # MASfM
 Marker Assisted Structure from Motion (SfM) for marker-based pose estimation systems
 
+# Demo Video
+[![Alt text](https://img.youtube.com/vi/ZUpVDfPQbFM/0.jpg)](https://www.youtube.com/watch?v=ZUpVDfPQbFM)
+
 # Dependencies
 * [OpenCV](http://opencv.org/downloads.html)   
   Version 2.4.x is recommended.
