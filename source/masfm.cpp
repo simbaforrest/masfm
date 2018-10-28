@@ -10,6 +10,128 @@ using april::tag::TagDetector;
 using april::tag::TagDetection;
 using helper::ImageSource;
 
+#ifdef HAVE_OPENCV_VIZ
+#include <opencv2/viz.hpp>
+
+struct VisCMGraph : public cmg::CMGraph::Callback {
+	cv::viz::Viz3d viewer;
+	std::set<std::string> widget_ids;
+	double scale;
+
+	VisCMGraph(double scale_ = 1.0, std::string viewer_name="cmgraph_viewer") : viewer(viewer_name), scale(scale_)
+	{
+		viewer.setBackgroundColor(cv::viz::Color::white());
+		viewer.showWidget("WorldFrame", cv::viz::WCoordinateSystem(10*scale));
+		viewer.showWidget("Traj", cv::viz::WCoordinateSystem(0 * scale));
+		viewer.showWidget("Current", cv::viz::WCoordinateSystem(0 * scale));
+		viewer.showWidget("Current.frame", cv::viz::WCoordinateSystem(0 * scale));
+	}
+	~VisCMGraph() {}
+
+	virtual void operator()(const cmg::CMGraph& G) {
+		cv::waitKey(1); //refresh cv::imshow window
+		draw(G);
+		viewer.resetCamera();
+		viewer.spinOnce(helper::iniGet<int>("callback_vis_time", 100), true);
+		if (helper::iniGet<bool>("callback_pause", false))
+			cv::waitKey(-1);
+	}
+
+	void draw(const cmg::CMGraph& G) {
+		using namespace cmg;
+
+		cv::Matx33d K(G.calib.K().data());
+		K = K.t();
+		
+		for(int mid=0; mid<G.markers.size(); ++mid)
+		{
+			const std::string midstr = cv::format("m%d", mid);
+			cv::Affine3d pose(
+				cv::Vec3d(G.markers[mid].p.head<3>().data()),
+				cv::Vec3d(G.markers[mid].p.tail<3>().data()));
+			cv::Affine3d text_pose(
+				cv::Vec3d(0,0,0),
+				cv::Vec3d(G.markers[mid].p.tail<3>().data()));
+			//std::cout << pose.matrix << std::endl;
+			if(widget_ids.find(midstr)!=widget_ids.end())
+			{
+				viewer.setWidgetPose(midstr, pose);
+				viewer.setWidgetPose(midstr + ".text", text_pose);
+			}
+			else
+			{
+				double sc = scale; //mid == G.fixed_marker_id ? 3*scale : 1.2*scale;
+				widget_ids.insert(midstr);
+				viewer.showWidget(midstr,
+					cv::viz::WPlane(cv::Size2d(sc, sc), cv::viz::Color::black()),
+					//cv::viz::WCoordinateSystem( mid==G.fixed_marker_id ? 2*scale : 1.2*scale),
+					pose);
+				viewer.showWidget(midstr + ".text",
+					cv::viz::WText3D(midstr, cv::Vec3d(0,0,0), 0.5*scale, true, cv::viz::Color::gray()),
+					text_pose
+				);
+			}
+		}
+
+		std::vector<cv::Affine3d> traj;
+		traj.resize(G.views.size());
+		for (int vid = 0; vid < G.views.size(); ++vid)
+		{
+			const std::string vidstr = cv::format("v%d", vid);
+			cv::Affine3d pose(
+				cv::Vec3d(G.views[vid].p.head<3>().data()),
+				cv::Vec3d(G.views[vid].p.tail<3>().data()));
+			cv::Affine3d text_pose(
+				cv::Vec3d(0,0,0),
+				cv::Vec3d(G.views[vid].p.tail<3>().data()));
+			traj[vid] = pose;
+			if (widget_ids.find(vidstr) != widget_ids.end())
+			{
+				viewer.setWidgetPose(vidstr, pose);
+				viewer.setWidgetPose(vidstr + ".text", text_pose);
+			}
+			else
+			{
+				widget_ids.insert(vidstr);
+				viewer.showWidget(vidstr,
+					cv::viz::WCameraPosition(K, 4*scale, cv::viz::Color::blue()),
+					pose);
+				viewer.showWidget(vidstr + ".text",
+					cv::viz::WText3D(vidstr, cv::Vec3d(0,0,0), 0.5*scale, true, cv::viz::Color::bluberry()),
+					text_pose
+				);
+			}
+		}
+
+		viewer.removeWidget("Traj");
+		viewer.showWidget("Traj", cv::viz::WTrajectory(traj, 2, 1*scale, cv::viz::Color::red()));
+
+		if (G.views.empty())
+			return;
+
+		const cmg::Node& last_view = G.views[G.views.size() - 1];
+		const cv::Vec3d last_view_center(last_view.t().data());
+		cv::viz::WWidgetMerger cur_lines_of_sight;
+		for each (const EID eid in last_view.vmeids)
+		{
+			const Node& marker = G.markers[G.edges[eid].mid];
+			cur_lines_of_sight.addWidget(
+				cv::viz::WLine(last_view_center, cv::Vec3d(marker.t().data()), cv::viz::Color::green())
+			);
+		}
+		viewer.removeWidget("Current");
+		viewer.showWidget("Current", cur_lines_of_sight);
+
+		viewer.removeWidget("Current.frame");
+		viewer.showWidget("Current.frame",
+			cv::viz::WCoordinateSystem( scale ),
+			cv::Affine3d(
+				cv::Vec3d(last_view.p.head<3>().data()),
+				cv::Vec3d(last_view.p.tail<3>().data())));
+	}
+};
+#endif
+
 enum PROCESS_MODE {
 	MODE_BATCH=0,
 	MODE_LIVE=1
@@ -115,6 +237,16 @@ int process_batch()
 	VecObsArray frames;
 	load_all_frames(frames);
 
+#ifdef HAVE_OPENCV_VIZ
+	VisCMGraph vcmg(G.marker_half_size);
+	if (helper::iniGet<bool>("vis_process", true)) {
+		G.cb_addObsFromNewView = &vcmg;
+		G.cb_optimizeOneViewPose = &vcmg;
+		G.cb_optimizePose = &vcmg;
+	}
+	vcmg.draw(G);
+#endif // HAVE_OPENCV_VIZ
+
 	{
 		helper::ScopedTimer timer(helper::Timer::UNIT_MS, "[CMGraph.BatchProcess]");
 		CMGraph::BatchProcess(frames, G.calib, G, fixed_marker_name, p_ang, p_pos, sigma_u, max_iter_per_opt,
@@ -122,6 +254,15 @@ int process_batch()
 	}
 
 	save_graph_states(G);
+
+#ifdef HAVE_OPENCV_VIZ
+	vcmg.draw(G);
+	vcmg.viewer.resetCamera();
+	while (!vcmg.viewer.wasStopped())
+	{
+		vcmg.viewer.spinOnce(1);
+	}
+#endif // HAVE_OPENCV_VIZ
 	
 	return 0;
 }
@@ -142,8 +283,9 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 	std::string outputDir;
 	int hammingThresh;
 	bool doPerViewOpt;
+	int logCnt;
 
-	AprilTagProcessor() : doLog(false), doRecord(false), isPhoto(false), doPerViewOpt(false)
+	AprilTagProcessor() : doLog(false), doRecord(false), isPhoto(false), doPerViewOpt(false), logCnt(0)
 	{
 		tagTextScale = helper::iniGet<double>("tagTextScale",0.4f);
 		tagTextThickness = helper::iniGet<int>("tagTextThickness",1);
@@ -152,7 +294,7 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 		logVisFrame = helper::iniGet<bool>("logVisFrame",false);
 
 		//// create tagFamily
-		std::string tagid = helper::iniGet<std::string>("tagfamiliesID","0"); //defaul Tag16h5
+		std::string tagid = helper::iniGet<std::string>("tagfamiliesID","4"); //defaul Tag16h5
 		TagFamilyFactory::create(tagid, gTagFamilies);
 		if(gTagFamilies.size()<=0) {
 			tagle("create TagFamily failed all! exit...");
@@ -335,7 +477,12 @@ struct AprilTagProcessor : public ImageHelper::ImageSource::Processor {
 		if(nValidDetections>1 && (doLog || (isPhoto && useEachValidPhoto) || (!isPhoto && doRecord))) {
 			doLog=false;
 			addDetections2CMGraph(detections);
-			//TODO: save logged frame to outputDir
+			if (logVisFrame) {
+				cv::imwrite(
+					std::string(helper::FullFile() << outputDir << cv::format("%05d.jpg", logCnt)),
+					frame);
+				++logCnt;
+			}
 		} else if(doPerViewOpt) {
 			cmg::Node newView;
 			if(optimizeThisView(detections, newView)) {
@@ -393,10 +540,39 @@ int process_live()
 
 	processor.isPhoto = isPhoto;
 	processor.outputDir = helper::iniGet<std::string>("outputDir", is->getSourceDir());
+	{//create outputDir
+#ifdef _WIN32
+		std::string cmd = "if not exist \"" + processor.outputDir + "\" mkdir \"" + processor.outputDir + "\"";
+#else
+		std::string cmd = "mkdir -p " + processor.outputDir;
+#endif
+		int ret = system(cmd.c_str());
+		logld(cmd + "\nreturned " + cv::format("%d\n", ret));
+	}
 	tagli("detection will be logged to outputDir="<<processor.outputDir);
+
+#ifdef HAVE_OPENCV_VIZ
+	VisCMGraph vcmg(processor.G.marker_half_size);
+	if (helper::iniGet<bool>("vis_process", true)) {
+		processor.G.cb_addObsFromNewView = &vcmg;
+		processor.G.cb_optimizeOneViewPose = &vcmg;
+		processor.G.cb_optimizePose = &vcmg;
+	}
+	vcmg.draw(processor.G);
+#endif // HAVE_OPENCV_VIZ
+
 	is->run(processor,-1, false,
 		helper::iniGet<bool>("ImageSource:pause", is->getPause()),
 		helper::iniGet<bool>("ImageSource:loop", is->getLoop()) );
+
+#ifdef HAVE_OPENCV_VIZ
+	vcmg.draw(processor.G);
+	vcmg.viewer.resetCamera();
+	while (!vcmg.viewer.wasStopped())
+	{
+		vcmg.viewer.spinOnce(1);
+	}
+#endif // HAVE_OPENCV_VIZ
 
 	tagli("DONE...exit!");
 	return 0;

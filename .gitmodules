@@ -2,6 +2,3 @@
 	path = 3rdparty/cv2cg
 	url = https://github.com/simbaforrest/cv2cg.git
 	branch = apriltag
-[submodule "3rdparty/lch"]
-	path = 3rdparty/lch
-	url = https://github.com/simbaforrest/lch.git

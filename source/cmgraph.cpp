@@ -320,6 +320,10 @@ namespace cmg {
 			if(midi!=INVALID_NID)
 				newEdge(vid, midi, obs.u);
 		}
+
+		if (cb_addObsFromNewView) {
+			(*cb_addObsFromNewView)(*this);
+		}
 		return vid;
 	}
 
@@ -449,6 +453,10 @@ namespace cmg {
 			);
 		}
 
+		if (cb_optimizeOneViewPose) {
+			(*cb_optimizeOneViewPose)(*this);
+		}
+
 		return true;
 	}
 
@@ -564,6 +572,10 @@ namespace cmg {
 				summary.initial_cost/summary.num_residuals,
 				summary.final_cost/summary.num_residuals
 			);
+		}
+
+		if (cb_optimizePose) {
+			(*cb_optimizePose)(*this);
 		}
 
 		return true;

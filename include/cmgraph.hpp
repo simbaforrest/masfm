@@ -252,8 +252,20 @@ namespace cmg {
 		Precision marker_half_size;
 		bool verbose;
 
+		struct Callback {
+			virtual void operator()(const CMGraph& G) = 0;
+		};
+		typedef Callback* CallbackPtr;
+		CallbackPtr cb_addObsFromNewView;
+		CallbackPtr cb_optimizeNewViewPose;
+		CallbackPtr cb_optimizeOneViewPose;
+		CallbackPtr cb_optimizePose;
+
+
 	public: //member functions
-		CMGraph() : fixed_marker_id(INVALID_NID), marker_half_size(1), verbose(true) {}
+		CMGraph() : fixed_marker_id(INVALID_NID), marker_half_size(1), verbose(true),
+			cb_addObsFromNewView(0), cb_optimizeNewViewPose(0), cb_optimizeOneViewPose(0), cb_optimizePose(0)
+		{}
 
 		//print input information
 		inline void print() const

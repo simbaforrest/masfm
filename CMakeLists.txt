@@ -18,14 +18,6 @@ if(NOT CMAKE_INSTALL_PREFIX)
 	set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/matlab/ CACHE PATH ${CMAKE_SOURCE_DIR}/matlab/)
 endif()
 
-####### LCH
-Specify3rdparty(
-	LCH
-	${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/lch/include
-	"include directory for LCH"
-	lch.hpp
-)
-
 ####### CV2CG
 Specify3rdparty(
 	CV2CG
@@ -33,14 +25,13 @@ Specify3rdparty(
 	"include directory for cv2cg"
 	apriltag/apriltag.hpp
 )
+SET(LCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cv2cg/3rdparty/lch/include)
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CV2CG_INCLUDE_DIR}/../cmake/)
-include(${CV2CG_INCLUDE_DIR}/../cmake/FindLCM.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/SetCV2CGDependencies.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAppConfig.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/AutoAddSubDir.cmake)
 include(${CV2CG_INCLUDE_DIR}/../cmake/BuildLCMType.cmake)
 ADD_SUBDIRECTORY(${CV2CG_INCLUDE_DIR}/../application)
-ADD_DEFINITIONS(-DOPENCV_FOUND)
 MESSAGE(STATUS "CV2CG_3RDPARTY_LINKEROPTION: " ${CV2CG_3RDPARTY_LINKEROPTION})
 
 ####### eigen
@@ -51,62 +42,15 @@ Specify3rdparty(
 	Eigen/Eigen
 )
 
-####### libglog
-Specify3rdparty(
-	LIBGLOG
-	c:/glog/include
-	"include directory for libglog"
-	glog/logging.h
-)
-Specify3rdpartyLib(
-	LIBGLOG_LIB_RELEASE
-	c:/glog/lib/Release/libglog.lib
-	"release lib for libglog"
-	true
-)
-Specify3rdpartyLib(
-	LIBGLOG_LIB_DEBUG
-	c:/glog/lib/Debug/libglog.lib
-	"debug lib for libglog"
-	false
-)
-# use static or dynamic libglog
-option(OPT_USE_LIBGLOG_STATIC "use libglog_static.lib instead of libglog.lib" ON)
-if(OPT_USE_LIBGLOG_STATIC)
-	add_definitions( -DLIBGLOG_IS_STATIC )
-endif()
-
-####### ceres
-Specify3rdparty(
-	CERES
-	c:/ceres/include
-	"include directory for ceres"
-	ceres/ceres.h
-)
-include_directories("${CERES_INCLUDE_DIR}/../../win/include/")
-Specify3rdpartyLib(
-	CERES_LIB_RELEASE
-	c:/ceres/lib/Release/ceres.lib
-	"release lib for ceres"
-	true
-)
-Specify3rdpartyLib(
-	CERES_LIB_DEBUG
-	c:/glog/lib/Debug/ceres.lib
-	"debug lib for ceres"
-	false
-)
-# use static or dynamic ceres
-option(OPT_USE_CERES_STATIC "use ceres_static.lib instead of ceres.lib" ON)
-if(OPT_USE_CERES_STATIC)
-	add_definitions( -DCERES_USING_STATIC_LIBRARY )
-	
-	IF(WIN32)
-		set( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} /GL /Ot" )
-		set( CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} /LTCG" )
-		set( CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} /LTCG" )
-	ENDIF()
-endif()
+####### Ceres
+find_package(Ceres REQUIRED)
+MESSAGE(STATUS "CERES_INCLUDE_DIR: " ${Ceres_DIR}/../include)
+MESSAGE(STATUS "CERES_LIBRARIES: " ${CERES_LIBRARIES})
+MESSAGE(STATUS "GFLAGS_INCLUDE_DIRS: " ${GFLAGS_INCLUDE_DIRS})
+MESSAGE(STATUS "GLOG_INCLUDE_DIRS: " ${GLOG_INCLUDE_DIRS})
+include_directories(${Ceres_DIR}/../include)
+include_directories(${GFLAGS_INCLUDE_DIRS})
+include_directories(${glog_DIR}/../../../include)
 
 ######################################################################################
 add_library(cmgraph STATIC
@@ -120,12 +64,11 @@ add_executable(masfm
 	source/masfm.ini
 )
 
-target_link_libraries(masfm cmgraph ${CV2CG_3RDPARTY_LINKEROPTION})
-target_link_libraries(masfm optimized ${LIBGLOG_LIB_RELEASE} ${CERES_LIB_RELEASE})
-target_link_libraries(masfm debug ${LIBGLOG_LIB_DEBUG} ${CERES_LIB_DEBUG})
+target_link_libraries(masfm cmgraph ${CV2CG_3RDPARTY_LINKEROPTION} ${CERES_LIBRARIES} ${GFLAGS_LIBRARIES} ${GLOG_LIBRARIES})
 
 set_target_properties(${ProjectName} PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/bin")
 
 INSTALL(TARGETS masfm DESTINATION bin)
-INSTALL(FILES source/masfm.ini data/masfm.in DESTINATION bin)
+INSTALL(DIRECTORY data/ DESTINATION data)
+INSTALL(FILES source/masfm.ini data/masfm.in source/masfm.cam.ini DESTINATION bin)
 INSTALL(TARGETS cmgraph DESTINATION lib)
