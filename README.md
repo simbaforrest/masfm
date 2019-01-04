@@ -1,6 +1,8 @@
 # MASfM
 Marker Assisted Structure from Motion (SfM) for marker-based pose estimation systems
 
+![3D visualization](https://github.com/simbaforrest/masfm/raw/master/data/masfm.gif)
+
 # Demo Video
 [![Alt text](https://img.youtube.com/vi/ZUpVDfPQbFM/0.jpg)](https://www.youtube.com/watch?v=ZUpVDfPQbFM)
 
