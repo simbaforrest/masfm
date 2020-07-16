@@ -112,7 +112,7 @@ struct VisCMGraph : public cmg::CMGraph::Callback {
 		const cmg::Node& last_view = G.views[G.views.size() - 1];
 		const cv::Vec3d last_view_center(last_view.t().data());
 		cv::viz::WWidgetMerger cur_lines_of_sight;
-		for each (const EID eid in last_view.vmeids)
+		for (const auto& eid:last_view.vmeids)
 		{
 			const Node& marker = G.markers[G.edges[eid].mid];
 			cur_lines_of_sight.addWidget(
